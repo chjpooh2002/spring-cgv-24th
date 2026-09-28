@@ -1,6 +1,7 @@
 package com.ceos24.cgv.domain.reservation.service;
 
 import com.ceos24.cgv.domain.branch.entity.TheaterType;
+import com.ceos24.cgv.global.common.PaymentResult;
 import com.ceos24.cgv.global.exception.CustomException;
 import com.ceos24.cgv.global.exception.ErrorCode;
 import com.ceos24.cgv.domain.reservation.dto.PaymentRequest;
@@ -110,7 +111,7 @@ public class ReservationService {
         LocalDateTime now = LocalDateTime.now(clock);
         Reservation reservation = findOwnedWithDetails(id, userId);
 
-        if (req.result() == PaymentRequest.PaymentResult.FAILURE) {
+        if (req.result() == PaymentResult.FAILURE) {
             reservation.cancel(now);
             throw new CustomException(ErrorCode.PAYMENT_FAILED);
         }

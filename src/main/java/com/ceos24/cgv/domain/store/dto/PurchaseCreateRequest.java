@@ -1,6 +1,6 @@
 package com.ceos24.cgv.domain.store.dto;
 
-import com.ceos24.cgv.domain.reservation.dto.PaymentRequest.PaymentResult;
+import com.ceos24.cgv.global.common.PaymentResult;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotEmpty;

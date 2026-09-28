@@ -2,7 +2,6 @@ package com.ceos24.cgv.domain.store.service;
 
 import com.ceos24.cgv.domain.branch.entity.Branch;
 import com.ceos24.cgv.domain.branch.repository.BranchRepository;
-import com.ceos24.cgv.domain.reservation.dto.PaymentRequest.PaymentResult;
 import com.ceos24.cgv.domain.store.dto.PurchaseCreateRequest;
 import com.ceos24.cgv.domain.store.dto.PurchaseResponse;
 import com.ceos24.cgv.domain.store.entity.Product;
@@ -13,6 +12,7 @@ import com.ceos24.cgv.domain.store.repository.PurchaseRepository;
 import com.ceos24.cgv.domain.store.repository.StockRepository;
 import com.ceos24.cgv.domain.user.entity.User;
 import com.ceos24.cgv.domain.user.repository.UserRepository;
+import com.ceos24.cgv.global.common.PaymentResult;
 import com.ceos24.cgv.global.exception.CustomException;
 import com.ceos24.cgv.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;

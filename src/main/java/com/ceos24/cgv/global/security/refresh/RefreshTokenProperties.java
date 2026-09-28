@@ -1,4 +1,4 @@
-package com.ceos24.cgv.global.security;
+package com.ceos24.cgv.global.security.refresh;
 
 import jakarta.validation.constraints.NotNull;
 import org.springframework.boot.context.properties.ConfigurationProperties;

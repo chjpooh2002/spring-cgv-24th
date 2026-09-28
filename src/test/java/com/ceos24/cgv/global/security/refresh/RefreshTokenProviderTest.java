@@ -1,4 +1,4 @@
-package com.ceos24.cgv.global.security;
+package com.ceos24.cgv.global.security.refresh;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

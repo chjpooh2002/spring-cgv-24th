@@ -1,4 +1,4 @@
-package com.ceos24.cgv.global.security;
+package com.ceos24.cgv.global.security.handler;
 
 import com.ceos24.cgv.global.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;

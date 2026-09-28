@@ -2,7 +2,7 @@ package com.ceos24.cgv.global.security.jwt;
 
 import com.ceos24.cgv.global.exception.CustomException;
 import com.ceos24.cgv.global.security.AuthUser;
-import com.ceos24.cgv.global.security.JwtAuthenticationEntryPoint;
+import com.ceos24.cgv.global.security.handler.JwtAuthenticationEntryPoint;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

@@ -7,7 +7,7 @@ import com.ceos24.cgv.domain.user.repository.RefreshTokenRepository;
 import com.ceos24.cgv.domain.user.repository.UserRepository;
 import com.ceos24.cgv.global.exception.CustomException;
 import com.ceos24.cgv.global.exception.ErrorCode;
-import com.ceos24.cgv.global.security.RefreshTokenProvider;
+import com.ceos24.cgv.global.security.refresh.RefreshTokenProvider;
 import com.ceos24.cgv.global.security.jwt.JwtProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

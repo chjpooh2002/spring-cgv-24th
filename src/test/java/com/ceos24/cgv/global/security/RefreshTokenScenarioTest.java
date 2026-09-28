@@ -6,6 +6,8 @@ import com.ceos24.cgv.domain.user.entity.User;
 import com.ceos24.cgv.domain.user.repository.RefreshTokenRepository;
 import com.ceos24.cgv.global.security.jwt.JwtProperties;
 import com.ceos24.cgv.global.security.jwt.JwtProvider;
+import com.ceos24.cgv.global.security.refresh.RefreshTokenProperties;
+import com.ceos24.cgv.global.security.refresh.RefreshTokenProvider;
 import com.ceos24.cgv.support.AuthScenarioTest;
 import com.ceos24.cgv.support.TestFixtures;
 import com.jayway.jsonpath.JsonPath;

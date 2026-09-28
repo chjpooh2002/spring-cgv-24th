@@ -1,4 +1,4 @@
-package com.ceos24.cgv.global.security;
+package com.ceos24.cgv.global.security.refresh;
 
 import com.ceos24.cgv.global.exception.CustomException;
 import com.ceos24.cgv.global.exception.ErrorCode;

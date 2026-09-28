@@ -1276,7 +1276,7 @@ RFC 6749 기준으로 두 토큰 모두 JWT일 필요는 없습니다. 특히 �
 - 액세스 토큰이 만료되면 `POST /api/auth/reissue`로 재발급받습니다. 권한은 재발급 시점의 DB 값으로 다시 정해집니다.
 - 이미 발급한 액세스 토큰은 여전히 만료 전에 무효화할 수 없습니다. 로그아웃해도 마찬가지이며, 짧은 유효기간이 완화 수단입니다.
 - 재발급할 때마다 리프레시 토큰도 새로 발급하고(순환 발급), 이미 쓴 리프레시 토큰이 다시 오면 그 로그인의 토큰을 모두 폐기합니다(재사용 탐지). 리프레시 토큰의 수명은 로그인 시점 기준으로 고정이라 재발급해도 늘어나지 않습니다.
-- 코드: `global/security/jwt/JwtProperties.java`, `global/security/RefreshTokenProvider.java`, `domain/user/dto/LoginResponse.java`
+- 코드: `global/security/jwt/JwtProperties.java`, `global/security/refresh/RefreshTokenProvider.java`, `domain/user/dto/LoginResponse.java`
 
 **참고** [RFC 6749 1.4절](https://www.rfc-editor.org/rfc/rfc6749#section-1.4) · [RFC 6749 1.5절](https://www.rfc-editor.org/rfc/rfc6749#section-1.5)
 
@@ -1419,7 +1419,7 @@ flowchart TD
 - `JwtAuthenticationEntryPoint`는 필터가 기록한 실패 원인에 따라 `TOKEN_NOT_EXIST`, `TOKEN_EXPIRED`, `TOKEN_INVALID` 중 하나로 응답하고 `WWW-Authenticate: Bearer` 헤더를 붙입니다.
 - 두 핸들러 모두 `SecurityErrorResponder`로 컨트롤러 오류와 같은 `ApiResponse` JSON을 씁니다.
 - 남의 예매에 접근하면 403이 아니라 404 `RESERVATION_NOT_FOUND`입니다. 예매 id가 순차 증가라 403이면 존재 여부가 드러나기 때문입니다.
-- 코드: `global/security/JwtAuthenticationEntryPoint.java`, `global/security/JwtAccessDeniedHandler.java`, `global/security/SecurityErrorResponder.java`, `global/config/SecurityConfig.java`
+- 코드: `global/security/handler/JwtAuthenticationEntryPoint.java`, `global/security/handler/JwtAccessDeniedHandler.java`, `global/security/handler/SecurityErrorResponder.java`, `global/config/SecurityConfig.java`
 
 ### 7. (선택) OAuth 2.0과 JWT의 역할 차이
 
@@ -1678,7 +1678,7 @@ JWT 필터는 익명 필터보다 앞에 있어야 토큰 인증이 먼저 자�
 
 폐기는 행 삭제가 아니라 `revoked_at` 기록입니다. 삭제하면 폐기된 토큰과 처음부터 없던 토큰을 구분할 수 없고, 재사용 탐지의 근거도 사라집니다.
 
-- 코드: `global/security/RefreshTokenProvider.java`, `domain/user/entity/RefreshToken.java`, `domain/user/service/RefreshTokenService.java`, `domain/user/service/AuthService.java`
+- 코드: `global/security/refresh/RefreshTokenProvider.java`, `domain/user/entity/RefreshToken.java`, `domain/user/service/RefreshTokenService.java`, `domain/user/service/AuthService.java`
 
 ### 액세스 토큰과의 구분
 

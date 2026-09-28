@@ -1,9 +1,9 @@
 package com.ceos24.cgv.global.config;
 
 import com.ceos24.cgv.domain.user.entity.Role;
-import com.ceos24.cgv.global.security.JwtAccessDeniedHandler;
-import com.ceos24.cgv.global.security.JwtAuthenticationEntryPoint;
-import com.ceos24.cgv.global.security.RefreshTokenProperties;
+import com.ceos24.cgv.global.security.handler.JwtAccessDeniedHandler;
+import com.ceos24.cgv.global.security.handler.JwtAuthenticationEntryPoint;
+import com.ceos24.cgv.global.security.refresh.RefreshTokenProperties;
 import com.ceos24.cgv.global.security.jwt.JwtAuthenticationFilter;
 import com.ceos24.cgv.global.security.jwt.JwtProperties;
 import com.ceos24.cgv.global.security.jwt.JwtProvider;

@@ -2,6 +2,7 @@ package com.ceos24.cgv.global.security;
 
 import com.ceos24.cgv.domain.user.entity.RefreshToken;
 import com.ceos24.cgv.domain.user.repository.RefreshTokenRepository;
+import com.ceos24.cgv.global.security.refresh.RefreshTokenProvider;
 import com.ceos24.cgv.support.AuthScenarioTest;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.AfterEach;

@@ -51,6 +51,10 @@ public class RefreshTokenService {
     // noRollbackFor: 재사용 탐지의 묶음 폐기는 401과 함께 커밋되어야 한다. 쓰기 뒤에 예외를 던지는 곳은 그 분기뿐이다.
     @Transactional(noRollbackFor = CustomException.class)
     public TokenReissueResponse reissue(String rawRefreshToken) {
+        // 400으로 따로 알리지 않는다. 거부 응답은 원인과 관계없이 같아야 하고, 받은 값을 검증 오류 응답으로 되돌려 주지도 않는다.
+        if (!refreshTokenProvider.hasIssuedLength(rawRefreshToken)) {
+            throw rejected("length_mismatch", null);
+        }
         RefreshToken current = refreshTokenRepository
                 .findByTokenHashForUpdate(refreshTokenProvider.hash(rawRefreshToken))
                 .orElseThrow(() -> rejected("not_found", null));
@@ -78,6 +82,9 @@ public class RefreshTokenService {
     // 사용 완료 토큰이어도 401을 내지 않는다. 로그아웃이 토큰 상태를 확인하는 창구가 되지 않게 탐지는 로그로만 남긴다.
     @Transactional
     public void revokeFamilyOf(String rawRefreshToken) {
+        if (!refreshTokenProvider.hasIssuedLength(rawRefreshToken)) {
+            return;
+        }
         refreshTokenRepository.findByTokenHash(refreshTokenProvider.hash(rawRefreshToken)).ifPresent(token -> {
             int revoked = refreshTokenRepository.revokeFamily(token.getFamilyId(), LocalDateTime.now(clock));
             if (token.isUsed()) {

@@ -11,6 +11,9 @@ import com.ceos24.cgv.global.security.refresh.RefreshTokenProvider;
 import com.ceos24.cgv.support.AuthScenarioTest;
 import com.ceos24.cgv.support.TestFixtures;
 import com.jayway.jsonpath.JsonPath;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +46,7 @@ class RefreshTokenScenarioTest extends AuthScenarioTest {
     @Autowired RefreshTokenProperties refreshTokenProperties;
     @Autowired JwtProvider jwtProvider;
     @Autowired JwtProperties jwtProperties;
+    @Autowired EntityManagerFactory emf;
 
     @Test
     @DisplayName("로그인하면 액세스 토큰과 리프레시 토큰을 함께 발급한다")
@@ -347,6 +351,23 @@ class RefreshTokenScenarioTest extends AuthScenarioTest {
         assertThat(rejectedBody(accessToken)).isEqualTo(expiredBody);
     }
 
+    // 길이 제한이 없으면 큰 문자열 전체를 해시하고 DB까지 조회한다. 길이가 다르면 쿼리 없이 같은 401로 거부한다.
+    @Test
+    @DisplayName("발급 길이와 다른 리프레시 토큰은 DB 조회 없이 401 REFRESH_TOKEN_INVALID이고 다른 거부 응답과 본문이 같다")
+    void 길이가_다른_리프레시_토큰은_DB_조회_없이_401() throws Exception {
+        String oversized = "a".repeat(10_000);
+        Statistics statistics = statistics();
+
+        String body = reissueRequest(oversized)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REFRESH_TOKEN_INVALID"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(statistics.getPrepareStatementCount()).isZero();
+        assertThat(body).isEqualTo(rejectedBody(refreshTokenProvider.generate()))
+                .doesNotContain(oversized);
+    }
+
     @Test
     @DisplayName("리프레시 토큰이 비어 있거나 빠지면 400 INVALID_INPUT_VALUE")
     void 리프레시_토큰이_비어_있으면_400() throws Exception {
@@ -473,6 +494,16 @@ class RefreshTokenScenarioTest extends AuthScenarioTest {
     }
 
     @Test
+    @DisplayName("발급 길이와 다른 리프레시 토큰으로 로그아웃하면 DB 조회 없이 200")
+    void 길이가_다른_리프레시_토큰으로_로그아웃하면_DB_조회_없이_200() throws Exception {
+        Statistics statistics = statistics();
+
+        logoutRequest("a".repeat(10_000)).andExpect(status().isOk());
+
+        assertThat(statistics.getPrepareStatementCount()).isZero();
+    }
+
+    @Test
     @DisplayName("리프레시 토큰이 비어 있으면 로그아웃은 400 INVALID_INPUT_VALUE")
     void 로그아웃_리프레시_토큰이_비어_있으면_400() throws Exception {
         logoutRequest("")
@@ -502,6 +533,14 @@ class RefreshTokenScenarioTest extends AuthScenarioTest {
         return mockMvc.perform(post(LOGOUT_API)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"refreshToken\":\"%s\"}".formatted(refreshToken)));
+    }
+
+    // 앞서 쌓인 쓰기를 내보낸 뒤 센다. 그래야 요청이 실행한 쿼리만 남는다.
+    private Statistics statistics() {
+        em.flush();
+        Statistics statistics = emf.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        return statistics;
     }
 
     private LocalDateTime revokedAtOf(String refreshToken) {

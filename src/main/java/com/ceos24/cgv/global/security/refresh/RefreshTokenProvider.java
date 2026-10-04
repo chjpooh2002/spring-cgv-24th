@@ -20,6 +20,8 @@ public class RefreshTokenProvider {
 
     // 256비트. 추측으로 맞힐 확률이 서명키를 맞힐 확률과 같은 수준이다.
     private static final int TOKEN_BYTES = 32;
+    // 패딩 없는 Base64URL은 6비트당 한 글자라 발급한 토큰은 항상 43자다.
+    private static final int TOKEN_LENGTH = (TOKEN_BYTES * 8 + 5) / 6;
 
     // 운영체제 엔트로피를 쓰는 암호학적 난수 생성기. java.util.Random은 출력 몇 개로 다음 값을 예측할 수 있다.
     private final SecureRandom secureRandom = new SecureRandom();
@@ -34,6 +36,11 @@ public class RefreshTokenProvider {
         byte[] bytes = new byte[TOKEN_BYTES];
         secureRandom.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    // 길이가 다르면 이 서버가 발급한 토큰일 수 없다. 해시·DB 조회 전에 걸러 입력 크기만큼 일하지 않게 한다.
+    public boolean hasIssuedLength(String rawToken) {
+        return rawToken.length() == TOKEN_LENGTH;
     }
 
     // 비밀번호와 달리 솔트 없는 빠른 해시를 쓴다. 입력이 사람이 고른 값이 아니라 256비트 난수라 사전 공격이 성립하지 않고,

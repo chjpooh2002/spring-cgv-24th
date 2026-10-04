@@ -24,6 +24,14 @@ class RefreshTokenProviderTest {
         assertThat(token).hasSize(43).matches("^[A-Za-z0-9_-]+$");
     }
 
+    @Test
+    @DisplayName("발급한 토큰과 길이가 같을 때만 발급 길이로 본다")
+    void 발급_길이는_43자뿐이다() {
+        assertThat(provider.hasIssuedLength(provider.generate())).isTrue();
+        assertThat(provider.hasIssuedLength("a".repeat(42))).isFalse();
+        assertThat(provider.hasIssuedLength("a".repeat(44))).isFalse();
+    }
+
     // JWT는 점 두 개로 나뉜 세 조각이어야 한다. 점이 없으면 액세스 토큰 자리에 들어가도 형식 오류로 떨어진다.
     @Test
     @DisplayName("리프레시 토큰에는 점이 없어 JWT 형식이 될 수 없다")

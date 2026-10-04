@@ -1986,3 +1986,15 @@ README 테이블 정의의 "회원" 표기는 유지한다. 코드 식별자는 
 ### 확인
 
 `./gradlew test` 273개 통과(세션 5의 260 + 신규 15 − `revoke()` 테스트 2). 테이블은 `ddl-auto: create`라 이관 작업이 없다.
+
+---
+
+## 3주차 PR 리뷰 반영
+
+리뷰 한 건을 커밋 하나로 반영했다. 코드 변경이 없는 리뷰(권한 회수가 액세스 토큰 만료 전까지 반영되지 않는 문제)는 리뷰 답변으로만 정리했다.
+
+### 회원가입 무결성 위반 로그 (`AuthService.signup`)
+
+- `saveAndFlush`의 `DataIntegrityViolationException`을 `DUPLICATE_LOGIN_ID`로 바꾸기 전에 `getMostSpecificCause()` 메시지를 `warn`으로 남긴다
+- 지금은 users의 unique 제약이 `login_id`뿐이라 응답은 맞다. 제약이 추가되면 다른 위반도 같은 응답으로 나가는데, 그때 원인을 로그로 찾을 수 있게 하는 것이 목적이다
+- 응답은 바꾸지 않았다. 바꾸려면 제약 이름으로 분기해야 하는데, 지금은 분기할 대상이 없다

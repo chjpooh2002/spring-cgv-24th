@@ -58,8 +58,10 @@ public class AuthService {
         try {
             userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
-            // pre-check와 INSERT 사이에 같은 아이디가 먼저 가입한 경우다.
-            // users의 unique 제약은 login_id 하나뿐이라 다른 원인으로 오역될 여지가 없다.
+            // pre-check와 INSERT 사이에 같은 아이디가 먼저 가입한 경우다. 지금은 users의 unique 제약이 login_id뿐이지만,
+            // 제약이 늘면 다른 위반도 이 응답으로 나간다. 그때 응답만 보고는 원인을 알 수 없으므로 DB 메시지를 남긴다.
+            log.warn("[Signup] 저장 중 무결성 위반, DUPLICATE_LOGIN_ID로 응답 cause={}",
+                    e.getMostSpecificCause().getMessage());
             throw new CustomException(ErrorCode.DUPLICATE_LOGIN_ID);
         }
         return SignupResponse.from(user);

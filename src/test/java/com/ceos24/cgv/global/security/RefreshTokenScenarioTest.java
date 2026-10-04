@@ -527,6 +527,43 @@ class RefreshTokenScenarioTest extends AuthScenarioTest {
                 .andExpect(status().isOk());
     }
 
+    // ─── 만료 행 정리 ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("로그인하면 같은 사용자의 만료된 리프레시 토큰 행이 순환으로 이어진 것까지 모두 지워진다")
+    void 로그인하면_같은_사용자의_만료된_토큰_행이_지워진다() throws Exception {
+        Long userId = signup("refresh01");
+        String valid = loginForRefreshToken("refresh01");
+        User user = em.find(User.class, userId);
+        String expired = storeRefreshToken(user, LocalDateTime.now().minusMinutes(1));
+        storeRotatedExpiredFamily(user);
+        assertThat(tokensOf(userId)).hasSize(4);
+
+        String next = loginForRefreshToken("refresh01");
+        flushAndClear();
+
+        assertThat(tokensOf(userId)).hasSize(2)
+                .extracting(RefreshToken::getTokenHash)
+                .containsExactlyInAnyOrder(refreshTokenProvider.hash(valid), refreshTokenProvider.hash(next));
+        // 지워진 토큰도 다른 거부와 같은 응답이다
+        reissueRequest(expired)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REFRESH_TOKEN_INVALID"));
+    }
+
+    @Test
+    @DisplayName("로그인해도 다른 사용자의 만료된 리프레시 토큰 행은 지우지 않는다")
+    void 로그인해도_다른_사용자의_만료된_토큰_행은_남는다() throws Exception {
+        signup("refresh01");
+        Long otherId = signup("refresh02");
+        storeRefreshToken(em.find(User.class, otherId), LocalDateTime.now().minusMinutes(1));
+
+        loginForRefreshToken("refresh01");
+        flushAndClear();
+
+        assertThat(tokensOf(otherId)).hasSize(1);
+    }
+
     // ─── 헬퍼 ─────────────────────────────────────────────────────────────────
 
     private ResultActions logoutRequest(String refreshToken) throws Exception {
@@ -595,6 +632,19 @@ class RefreshTokenScenarioTest extends AuthScenarioTest {
                 .build());
         flushAndClear();
         return rawToken;
+    }
+
+    // 한 번 순환한 뒤 함께 만료된 묶음. 사용 완료 행과 그 다음 행이 같은 만료 시각을 갖는다.
+    private void storeRotatedExpiredFamily(User user) {
+        LocalDateTime expiresAt = LocalDateTime.now().minusMinutes(1);
+        RefreshToken first = persist(RefreshToken.builder()
+                .user(user)
+                .tokenHash(refreshTokenProvider.hash(refreshTokenProvider.generate()))
+                .familyId(UUID.randomUUID().toString())
+                .expiresAt(expiresAt)
+                .build());
+        persist(first.rotate(refreshTokenProvider.hash(refreshTokenProvider.generate()), expiresAt.minusDays(1)));
+        flushAndClear();
     }
 
     private String expiredAccessToken(Long userId) {

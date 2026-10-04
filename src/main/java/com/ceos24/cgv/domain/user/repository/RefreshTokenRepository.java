@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
@@ -30,4 +31,14 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
             WHERE rt.familyId = :familyId AND rt.revokedAt IS NULL
             """)
     int revokeFamily(@Param("familyId") String familyId, @Param("now") LocalDateTime now);
+
+    // 지울 행을 잠금 없는 읽기로 먼저 고른다. user_id 범위로 바로 DELETE하면 InnoDB가 그 범위의 간격까지 잠가,
+    // 같은 사용자가 두 기기에서 동시에 로그인할 때 서로의 INSERT를 막아 교착이 날 수 있다.
+    @Query("SELECT rt.id FROM RefreshToken rt WHERE rt.user.id = :userId AND rt.expiresAt <= :now")
+    List<Long> findExpiredIdsByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    // 기본키로만 지워 고른 행 외에는 잠그지 않는다.
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("DELETE FROM RefreshToken rt WHERE rt.id IN :ids")
+    int deleteAllByIdIn(@Param("ids") List<Long> ids);
 }

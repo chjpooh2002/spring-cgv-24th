@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 // 리프레시 토큰의 DB 상태를 바꾸는 트랜잭션 경계. AuthService가 이 경계 바깥에서 잠금 대기 초과를 응답으로 바꾼다.
@@ -35,14 +36,28 @@ public class RefreshTokenService {
     // 원문은 응답으로 한 번만 내보내고 DB에는 해시만 남긴다. 로그인마다 새 묶음이라 기기별 토큰이 따로 산다.
     @Transactional
     public String issue(Long userId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        deleteExpired(userId, now);
+
         String rawToken = refreshTokenProvider.generate();
         refreshTokenRepository.save(RefreshToken.builder()
                 .user(userRepository.getReferenceById(userId))
                 .tokenHash(refreshTokenProvider.hash(rawToken))
                 .familyId(UUID.randomUUID().toString())
-                .expiresAt(refreshTokenProvider.expiresAt(LocalDateTime.now(clock)))
+                .expiresAt(refreshTokenProvider.expiresAt(now))
                 .build());
         return rawToken;
+    }
+
+    // 순환할 때마다 행이 늘어 정리가 없으면 테이블이 계속 커진다. 스케줄러 대신 로그인할 때 그 사용자의 만료 행만 지운다.
+    // 사용자당 남는 행은 마지막 로그인 이후 유효기간 안의 것으로 묶인다.
+    // 한 묶음은 만료 시각을 물려받아 함께 만료되므로 묶음이 반쯤 지워진 채 남지 않는다. 만료 뒤 재사용 탐지는 잃지만,
+    // 그 묶음에는 이미 쓸 수 있는 토큰이 없고 응답도 같은 401이라 막아 줄 것이 없다.
+    private void deleteExpired(Long userId, LocalDateTime now) {
+        List<Long> expiredIds = refreshTokenRepository.findExpiredIdsByUserId(userId, now);
+        if (!expiredIds.isEmpty()) {
+            refreshTokenRepository.deleteAllByIdIn(expiredIds);
+        }
     }
 
     // 사용 완료 표시와 새 토큰 저장이 한 트랜잭션이다. 어느 쪽이 실패해도 둘 다 되돌아가서

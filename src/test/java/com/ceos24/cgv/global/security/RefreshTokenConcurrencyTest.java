@@ -1,14 +1,20 @@
 package com.ceos24.cgv.global.security;
 
 import com.ceos24.cgv.domain.user.entity.RefreshToken;
+import com.ceos24.cgv.domain.user.entity.User;
 import com.ceos24.cgv.domain.user.repository.RefreshTokenRepository;
+import com.ceos24.cgv.domain.user.service.RefreshTokenService;
 import com.ceos24.cgv.global.security.refresh.RefreshTokenProvider;
 import com.ceos24.cgv.support.AuthScenarioTest;
+import com.ceos24.cgv.support.MySqlContainerConfig;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -16,8 +22,10 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -33,6 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // 모든 요청이 한 트랜잭션에 합류해 잠금 경쟁이 생기지 않고, 롤백될 변경도 같은 트랜잭션 안에서는 보인다.
 // 그래서 상위 클래스의 @Transactional을 끄고 실제 필터 체인으로 요청을 보낸다.
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@Import(MySqlContainerConfig.class)
 class RefreshTokenConcurrencyTest extends AuthScenarioTest {
 
     private static final String REISSUE_API = "/api/auth/reissue";
@@ -41,6 +50,7 @@ class RefreshTokenConcurrencyTest extends AuthScenarioTest {
     @Autowired RefreshTokenRepository refreshTokenRepository;
     @Autowired RefreshTokenProvider refreshTokenProvider;
     @Autowired TransactionTemplate transactionTemplate;
+    @Autowired RefreshTokenService refreshTokenService;
 
     // 커밋하는 테스트라 롤백에 기댈 수 없다. 이 클래스가 만든 사용자와 그 토큰만 지운다.
     @AfterEach
@@ -156,7 +166,76 @@ class RefreshTokenConcurrencyTest extends AuthScenarioTest {
         reissueRequest(token).andExpect(status().isOk());
     }
 
+    // 발급은 만료 행 삭제와 새 행 INSERT를 한 트랜잭션에서 한다. user_id 범위로 지우면 간격 잠금끼리 서로의 INSERT를 막아
+    // 교착이 날 수 있어 기본키로 지운다. 로그인 API는 BCrypt 비교 시간이 들쭉날쭉해 겹치는 구간이 좁으므로 발급을 직접 부른다.
+    // 만료 행이 0개인 경우가 교착 조건이다. 잠글 행이 없으면 양쪽이 간격 잠금만 쥐고 같은 간격에 INSERT하려 한다.
+    // 행이 있으면 그 행의 잠금에서 줄을 서므로 교착까지 가지 않는다.
+    @ParameterizedTest(name = "만료 행 {0}개")
+    @ValueSource(ints = {0, 3})
+    @DisplayName("같은 사용자가 동시에 발급해도 교착 없이 모두 성공하고 만료 행만 지워진다")
+    void 같은_사용자가_동시에_발급해도_교착이_없다(int expiredCount) throws Exception {
+        Long userId = signup(LOGIN_ID_PREFIX + "01");
+        storeExpiredTokens(userId, expiredCount);
+        int requests = 10;
+
+        List<Throwable> failures = runConcurrently(requests, () -> refreshTokenService.issue(userId));
+
+        assertThat(failures).isEmpty();
+        assertThat(refreshTokenRepository.findAll())
+                .filteredOn(t -> t.getUser().getId().equals(userId))
+                .hasSize(requests)
+                .noneMatch(t -> t.isExpiredAt(LocalDateTime.now()));
+    }
+
     // ─── 헬퍼 ─────────────────────────────────────────────────────────────────
+
+    // 모든 스레드를 한 번에 출발시키고, 실패한 작업의 예외만 모아 돌려준다.
+    private List<Throwable> runConcurrently(int threads, Runnable task) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<Throwable>> futures = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                futures.add(executor.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    try {
+                        task.run();
+                        return null;
+                    } catch (Throwable t) {
+                        return t;
+                    }
+                }));
+            }
+            ready.await();
+            start.countDown();
+
+            List<Throwable> failures = new ArrayList<>();
+            for (Future<Throwable> future : futures) {
+                Throwable failure = future.get(30, TimeUnit.SECONDS);
+                if (failure != null) {
+                    failures.add(failure);
+                }
+            }
+            return failures;
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private void storeExpiredTokens(Long userId, int count) {
+        transactionTemplate.executeWithoutResult(status -> {
+            for (int i = 0; i < count; i++) {
+                refreshTokenRepository.save(RefreshToken.builder()
+                        .user(em.getReference(User.class, userId))
+                        .tokenHash(refreshTokenProvider.hash(refreshTokenProvider.generate()))
+                        .familyId(UUID.randomUUID().toString())
+                        .expiresAt(LocalDateTime.now().minusMinutes(1))
+                        .build());
+            }
+        });
+    }
 
     // 모든 스레드가 준비된 뒤 한 번에 출발시켜 실제로 겹치게 만든다.
     private List<MvcResult> reissueConcurrently(String token, int requests) throws Exception {

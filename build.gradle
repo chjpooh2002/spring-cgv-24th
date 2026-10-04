@@ -40,6 +40,9 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
     testImplementation 'com.h2database:h2'
+	// 동시성 테스트 전용. 잠금·교착 동작은 H2의 MySQL 모드가 흉내 내지 못해 실제 MySQL 컨테이너에서 돌린다.
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:testcontainers-mysql'
 }
 
 tasks.named('test') {

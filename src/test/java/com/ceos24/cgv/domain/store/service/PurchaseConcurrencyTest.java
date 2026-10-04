@@ -8,6 +8,7 @@ import com.ceos24.cgv.domain.user.entity.User;
 import com.ceos24.cgv.global.common.PaymentResult;
 import com.ceos24.cgv.global.exception.CustomException;
 import com.ceos24.cgv.global.exception.ErrorCode;
+import com.ceos24.cgv.support.MySqlContainerConfig;
 import com.ceos24.cgv.support.TestFixtures;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
@@ -33,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 // 상품 순서가 엇갈린 주문끼리 데드락이 나지 않는지를 실제 스레드로 확인한다.
 // 스레드마다 트랜잭션이 따로 열려야 해서 ControllerIntegrationTest(@Transactional)를 쓰지 않는다.
 @SpringBootTest
+@Import(MySqlContainerConfig.class)
 class PurchaseConcurrencyTest {
 
     @Autowired PurchaseService purchaseService;

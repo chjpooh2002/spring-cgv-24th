@@ -2037,3 +2037,32 @@ README 테이블 정의의 "회원" 표기는 유지한다. 코드 식별자는 
 - 한계: 다시 로그인하지 않는 사용자의 만료 행은 남는다
 - 테스트: 같은 사용자 재로그인 시 만료 행 3개(순환한 묶음 포함)만 삭제, 다른 사용자의 만료 행 유지.
   정리 호출을 빼면 첫 테스트가 "2개 예상, 실제 5개"로 실패하는 것을 확인했다(실험 후 원복)
+
+### 동시성 테스트를 MySQL 컨테이너로 (Testcontainers)
+
+- 리뷰: H2 MySQL 모드는 동시성 동작이 MySQL과 같지 않다
+- 결정 (작성자 선택): `*ConcurrencyTest` 4개만 MySQL 8.0 컨테이너로 옮긴다. Docker가 없으면 건너뛰지 않고 실패한다. 나머지는 H2 유지
+  - `build.gradle`: `spring-boot-testcontainers`, `testcontainers-mysql` (Boot 4.1.1 관리 버전 2.0.5)
+  - `support/MySqlContainerConfig`: `@ServiceConnection` 빈, `--innodb-lock-wait-timeout=3`(운영 `sessionVariables`와 같은 값)
+  - 컨테이너가 빈이라 4개 클래스가 컨텍스트 캐시 하나를 공유해 컨테이너가 한 번만 뜬다(기동 약 21초, 최초 이미지 다운로드 별도)
+  - 테스트 yaml의 H2 `driver-class-name`은 `@ServiceConnection`과 충돌하지 않았다(로그에 `jdbc:mysql://`, `MySQLDialect`)
+- 결과: 기존 동시성 테스트 11개는 MySQL에서도 그대로 통과했다. H2에서만 맞던 테스트는 없었다
+- 세션 6에서 미뤘던 확인: 잠금 대기 초과가 MySQL에서도 500이 아니라 401이다. 대기 시간 3.5초로 `innodb_lock_wait_timeout=3` 적용도 확인
+  (컨테이너 값 `@@innodb_lock_wait_timeout=3`, `REPEATABLE-READ`, 8.0.46)
+
+#### 리뷰 2 결정(조회 후 기본키 삭제)의 실측
+
+`RefreshTokenConcurrencyTest`에 같은 사용자 `issue()` 10건 동시 테스트를 추가했다(만료 행 0개 / 3개 매개변수화).
+로그인 API를 쓰지 않은 이유는 BCrypt 비교 시간이 들쭉날쭉해 트랜잭션이 겹치는 구간이 좁아지기 때문이다.
+
+| 삭제 방식 | 만료 행 0개 | 만료 행 3개 |
+|---|---|---|
+| `user_id` 범위 `DELETE` (대조 실험, 원복) | 3회 모두 `Deadlock found`(INSERT 단계), 마지막 회 10건 중 9건 실패 | 3회 모두 통과 |
+| id 조회 후 기본키 `DELETE` (현재) | 5회 모두 통과 | 5회 모두 통과 |
+
+- 처음 추론(만료 행이 있을 때 교착)은 틀렸다. 행이 있으면 그 행의 X 잠금에서 줄을 서서 교착까지 가지 않는다.
+  교착은 범위 안에 잠글 행이 없을 때, 양쪽이 간격 잠금만 쥔 채 같은 간격에 INSERT하려 할 때 난다. 첫 로그인이나 만료 행이 없는 사용자가 이 경우라 흔하다
+- 이 교착은 H2에서는 재현되지 않는다. MySQL로 옮긴 이유를 보여 주는 사례로 남긴다
+- `EXPLAIN`(임시 테스트, 삭제): 만료 행 조회 `type=ref key=FK(user_id)`, 삭제 `key=PRIMARY`. 인덱스 추가는 필요 없다(리뷰 2 판단 유지)
+
+- 테스트: 279 → 281개 (매개변수화 테스트 2건)

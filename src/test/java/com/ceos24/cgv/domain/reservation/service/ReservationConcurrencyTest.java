@@ -147,6 +147,41 @@ class ReservationConcurrencyTest {
         });
     }
 
+    // 위 테스트의 간헐 실패를 순서를 고정해 다시 만든 것이다. B의 스냅샷이 A의 커밋보다 앞서고, A가 만료 선점을 먼저 풀었다.
+    // 이전 구현은 B도 같은 값으로 다시 UPDATE했고, 시각까지 같으면 좌석 행만 옛 버전으로 남아 B가 (2,2)를 점유로 봤다.
+    // 시각이 같아지는 것은 여기서 고정할 수 없어 이 테스트만으로 이전 구현이 늘 실패하지는 않는다. 확인하는 것은 B의 해제가
+    // 0행이 되는 경로에서도 빈 좌석을 잡는다는 점이다.
+    @Test
+    void 만료_선점을_다른_요청이_먼저_풀어도_스냅샷이_앞선_요청은_빈_좌석을_잡는다() throws Exception {
+        transactionTemplate.executeWithoutResult(status -> {
+            Reservation stale = TestFixtures.hold(
+                    em.find(User.class, userIds.get(0)), em.find(Screening.class, screeningId),
+                    LocalDateTime.now().minusMinutes(30));
+            stale.addSeat(2, 1, AudienceType.ADULT, PRICE);
+            stale.addSeat(2, 2, AudienceType.ADULT, PRICE);
+            em.persist(stale);
+        });
+
+        ExecutorService other = Executors.newSingleThreadExecutor();
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                // B의 스냅샷을 만든다. 이후 create는 이 트랜잭션에 합류한다.
+                em.createQuery("select count(r) from Reservation r", Long.class).getSingleResult();
+                try {
+                    other.submit(() -> reservationService.create(userIds.get(1), request(userIds.get(1), seat(2, 1)).request()))
+                            .get(10, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+                reservationService.create(userIds.get(2), request(userIds.get(2), seat(2, 2)).request());
+            });
+        } finally {
+            other.shutdownNow();
+        }
+
+        assertThat(occupiedSeatCount()).isEqualTo(2);
+    }
+
     // ─── helpers ──────────────────────────────────────────────────────────────
 
     private List<Outcome> runConcurrently(int threads,

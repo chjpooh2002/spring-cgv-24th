@@ -159,18 +159,19 @@ public class ReservationService {
                 .orElseThrow(() -> new CustomException(ErrorCode.RESERVATION_NOT_FOUND));
     }
 
-    // 해제를 INSERT보다 먼저 DB에 반영해야 한다. 한 번에 flush하면 Hibernate가
-    // INSERT를 UPDATE보다 앞서 내보내 같은 좌석에서 유니크 충돌이 난다.
+    // 벌크 UPDATE라 INSERT보다 먼저 DB에 반영된다. 엔티티로 바꿔 한 번에 flush하면 Hibernate가 INSERT를 앞세운다.
+    // 같은 만료 선점을 다른 요청이 먼저 풀었으면 예매 UPDATE가 0행이 되고 좌석도 건드리지 않는다.
+    // 예매와 좌석 중 한쪽만 이 트랜잭션의 새 버전이 되는 일을 막기 위해서다(expireIfPending 주석).
     private void releaseExpiredHolds(Long screeningId,
                                      List<ReservationCreateRequest.SeatRequest> seats,
                                      LocalDateTime now) {
-        List<Reservation> expired = reservationRepository.findExpiredHoldsBlocking(
+        List<Long> expiredIds = reservationRepository.findExpiredHoldsBlocking(
                 screeningId, seatKeysOf(seats), ReservationStatus.PENDING, now);
-        if (expired.isEmpty()) {
-            return;
+        for (Long id : expiredIds) {
+            if (reservationRepository.expireIfPending(id, ReservationStatus.PENDING, ReservationStatus.EXPIRED, now) == 1) {
+                reservationSeatRepository.releaseOccupied(id, now);
+            }
         }
-        expired.forEach(r -> r.expire(now));
-        reservationRepository.flush();
     }
 
     // (행, 열) 쌍을 IN 절에 넣을 방법이 DB마다 달라 스칼라 하나로 접는다.

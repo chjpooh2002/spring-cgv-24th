@@ -4,6 +4,7 @@ import com.ceos24.cgv.domain.reservation.dto.ReservationDetailRow;
 import com.ceos24.cgv.domain.reservation.entity.Reservation;
 import com.ceos24.cgv.domain.reservation.entity.ReservationStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -79,10 +80,9 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     // 요청한 좌석을 실제로 막고 있는 만료 선점만 고른다. 회차의 만료 선점을 전부 풀면
     // 그 행들에 UPDATE 락이 걸려, 같은 회차를 골랐을 뿐인 다른 좌석 요청까지 서로를 기다린다.
-    // 좌석을 풀려면 자식까지 손대므로 seats를 함께 가져온다.
+    // 해제는 아래 조건부 UPDATE가 하므로 엔티티가 아니라 id만 읽는다.
     @Query("""
-            SELECT r FROM Reservation r
-            LEFT JOIN FETCH r.seats
+            SELECT r.id FROM Reservation r
             WHERE r.status = :pending
               AND r.expiresAt <= :now
               AND EXISTS (
@@ -93,8 +93,21 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                     AND rs.rowNum * 100 + rs.colNum IN :seatKeys
               )
             """)
-    List<Reservation> findExpiredHoldsBlocking(@Param("screeningId") Long screeningId,
-                                               @Param("seatKeys") List<Integer> seatKeys,
-                                               @Param("pending") ReservationStatus pending,
-                                               @Param("now") LocalDateTime now);
+    List<Long> findExpiredHoldsBlocking(@Param("screeningId") Long screeningId,
+                                        @Param("seatKeys") List<Integer> seatKeys,
+                                        @Param("pending") ReservationStatus pending,
+                                        @Param("now") LocalDateTime now);
+
+    // 조건이 있어야 값이 실제로 바뀔 때만 행에 맞는다. 다른 요청이 먼저 만료시킨 행을 같은 값으로 다시 쓰면 InnoDB는
+    // 새 버전을 만들지 않아, 이 트랜잭션의 스냅샷에 옛 행이 남는다. 예매 행만 새 버전이 되고 좌석 행은 옛 버전으로 보이면
+    // 사전 점유 검사가 빈 좌석을 점유로 판정한다. 벌크 UPDATE는 감사 리스너를 거치지 않아 updatedAt을 직접 쓴다.
+    @Modifying
+    @Query("""
+            UPDATE Reservation r SET r.status = :expired, r.updatedAt = :now
+            WHERE r.id = :id AND r.status = :pending AND r.expiresAt <= :now
+            """)
+    int expireIfPending(@Param("id") Long id,
+                        @Param("pending") ReservationStatus pending,
+                        @Param("expired") ReservationStatus expired,
+                        @Param("now") LocalDateTime now);
 }

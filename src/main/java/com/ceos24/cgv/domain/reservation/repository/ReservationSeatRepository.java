@@ -3,6 +3,7 @@ package com.ceos24.cgv.domain.reservation.repository;
 import com.ceos24.cgv.domain.reservation.entity.ReservationSeat;
 import com.ceos24.cgv.domain.reservation.entity.ReservationStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -48,6 +49,15 @@ public interface ReservationSeatRepository extends JpaRepository<ReservationSeat
         int getRowNum();
         int getColNum();
     }
+
+    // 만료 선점 해제. release_key = 0 조건은 ReservationRepository.expireIfPending의 조건과 같은 이유다.
+    // 해제 값이 예매 id인 이유는 ReservationSeat.release()와 같다.
+    @Modifying
+    @Query("""
+            UPDATE ReservationSeat rs SET rs.releaseKey = :reservationId, rs.updatedAt = :now
+            WHERE rs.reservation.id = :reservationId AND rs.releaseKey = 0
+            """)
+    int releaseOccupied(@Param("reservationId") Long reservationId, @Param("now") LocalDateTime now);
 
     // 예매율 정렬용. 확정된 예매만 센다. 선점은 아직 결제 전이고,
     // 취소·만료분은 release_key가 0이 아니라 status 조건만으로 이미 빠진다.

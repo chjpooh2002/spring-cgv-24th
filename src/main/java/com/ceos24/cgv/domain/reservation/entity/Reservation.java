@@ -102,15 +102,6 @@ public class Reservation extends BaseTimeEntity {
         releaseSeats();
     }
 
-    // 만료 대상만 골라 부르는 자리라 아닌 경우는 조용히 넘긴다.
-    public void expire(LocalDateTime now) {
-        if (!isExpired(now)) {
-            return;
-        }
-        this.status = ReservationStatus.EXPIRED;
-        releaseSeats();
-    }
-
     public int getTotalPrice() {
         return seats.stream()
                 .mapToInt(ReservationSeat::getPaidPrice)

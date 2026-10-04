@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.CannotAcquireLockException;
@@ -43,8 +44,10 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.*;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -177,17 +180,36 @@ class ReservationServiceTest {
     void 만료된_선점은_좌석을_잡기_전에_정리된다() {
         givenScreeningAndUser(1L, 1L);
         givenSaveAssignsId(2L);
-        Reservation stale = holdWithId(1L, NOW.minusMinutes(20), 1, 1);
         given(reservationRepository.findExpiredHoldsBlocking(
                 eq(1L), anyList(), eq(ReservationStatus.PENDING), eq(NOW)))
-                .willReturn(List.of(stale));
+                .willReturn(List.of(7L));
+        given(reservationRepository.expireIfPending(7L, ReservationStatus.PENDING, ReservationStatus.EXPIRED, NOW))
+                .willReturn(1);
 
         service.create(1L, reqOf(1L, new int[]{1, 1}));
 
-        assertThat(stale.getStatus()).isEqualTo(ReservationStatus.EXPIRED);
-        assertThat(stale.getSeats()).noneMatch(ReservationSeat::isOccupied);
-        // 해제를 먼저 내보내지 않으면 새 좌석 INSERT가 유니크 제약에 걸린다
-        verify(reservationRepository).flush();
+        // 해제가 새 좌석 INSERT보다 먼저 나가야 유니크 제약에 걸리지 않는다
+        InOrder order = inOrder(reservationRepository, reservationSeatRepository);
+        order.verify(reservationRepository).expireIfPending(7L, ReservationStatus.PENDING, ReservationStatus.EXPIRED, NOW);
+        order.verify(reservationSeatRepository).releaseOccupied(7L, NOW);
+        order.verify(reservationRepository).saveAndFlush(any());
+    }
+
+    // 다른 요청이 먼저 만료시킨 선점이다. 좌석까지 같은 값으로 다시 쓰면 이 트랜잭션의 스냅샷에 예매와 좌석이 엇갈려 보인다.
+    @Test
+    void 다른_요청이_먼저_만료시킨_선점의_좌석은_건드리지_않는다() {
+        givenScreeningAndUser(1L, 1L);
+        givenSaveAssignsId(2L);
+        given(reservationRepository.findExpiredHoldsBlocking(
+                eq(1L), anyList(), eq(ReservationStatus.PENDING), eq(NOW)))
+                .willReturn(List.of(7L));
+        given(reservationRepository.expireIfPending(7L, ReservationStatus.PENDING, ReservationStatus.EXPIRED, NOW))
+                .willReturn(0);
+
+        service.create(1L, reqOf(1L, new int[]{1, 1}));
+
+        verify(reservationSeatRepository, never()).releaseOccupied(anyLong(), any());
+        verify(reservationRepository).saveAndFlush(any());
     }
 
     @Test

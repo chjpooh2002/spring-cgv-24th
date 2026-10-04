@@ -2083,3 +2083,58 @@ README 테이블 정의의 "회원" 표기는 유지한다. 코드 식별자는 
   - 메서드는 컨트롤러가 쓰는 `GET`/`POST`/`DELETE`만 연다. 헤더는 `Authorization`, `Content-Type`, 노출 헤더는 `WWW-Authenticate`
   - `allowCredentials`는 켜지 않는다. 쿠키를 쓰지 않으므로 필요 없다(CLAUDE.md: 세션·인증 쿠키 미사용)
 - 테스트: `SecurityConfigTest` +4. 설정 전 4개 모두 실패, 설정 후 통과
+
+---
+
+## 만료 선점 동시 해제 시 빈 좌석을 점유로 판정하는 문제
+
+### 현상
+
+리뷰 3으로 동시성 테스트를 MySQL 컨테이너로 옮긴 뒤 `ReservationConcurrencyTest.만료된_선점이_잡고_있던_좌석을_동시_요청이_다시_가져간다`가
+가끔 실패했다(단독 0/8, 전체 실행 4회 중 2회). 만료 선점 X가 (2,1)·(2,2)를 잡고 있을 때 A가 (2,1), B가 (2,2)를 동시에 고르면
+B가 사전 점유 검사(`ReservationService.create`)에서 `SEAT_ALREADY_RESERVED`를 받았다. 이중 판매는 아니지만, 비어 있는 좌석을 거절한다.
+좌석을 고르기만 해도 점유되는 구조라, 만료된 선점이 풀린 좌석을 여러 사람이 동시에 고르는 일은 흔하다.
+
+### 원인
+
+- A와 B 모두 스냅샷으로 X를 만료 대상으로 읽고, 엔티티 `expire()` → 더티 체킹으로 전체 컬럼 UPDATE를 보낸다
+- B의 UPDATE는 A의 커밋을 기다렸다가 최신 행 위에서 실행된다. `release_key`는 둘 다 X의 id라 같은 값이다
+- InnoDB는 **값이 바뀌지 않는 UPDATE에는 새 행 버전을 만들지 않는다.** 그러면 B의 스냅샷에는 옛 버전(`release_key = 0`)이 그대로 보인다
+- 차이는 `updated_at`뿐이다. 이 JVM(Windows)의 `LocalDateTime.now()`는 0.34~0.5ms 단위로만 바뀌어서, 동시에 출발한 두 플러시가 같은 시각을 받을 수 있다
+- 한 플러시 안에서 시각의 틱 경계가 갈려 **B의 예매 행만 실제로 바뀌고 좌석 행은 그대로**인 경우가 생긴다.
+  그러면 B의 스냅샷에서 예매는 `EXPIRED`(자기 버전), 좌석은 `release_key = 0`(옛 버전)이 되고,
+  점유 조건 `release_key = 0 AND (status <> PENDING OR expires_at > now)`가 참이 된다
+- MySQL 드라이버는 바뀐 행이 아니라 조건에 맞은 행 수를 돌려주므로(1, 2), Hibernate는 이 상황을 알아챌 수 없다
+
+### 실험 (임시 테스트, MySQL 컨테이너, 삭제함)
+
+JDBC 커넥션 두 개로 순서를 고정했다. B가 스냅샷 생성 → A가 만료+커밋 → B가 같은 행을 UPDATE → B의 사전 검사.
+
+| 경우 | B의 UPDATE가 맞은 행 수 | B가 본 점유 좌석 |
+|---|---|---|
+| 예매 실제 변경, 좌석 값 같음 | 1 / 2 | **(2,1), (2,2)** |
+| 둘 다 실제 변경 | 1 / 2 | 없음 |
+| 둘 다 값 같음 | 1 / 2 | 없음 |
+| 조건부 UPDATE (수정안) | 0 / 0 | 없음 |
+
+처음 실험에서는 쿼리에 `NOW(6)`을 써서 모든 경우가 점유로 나왔다. 컨테이너 시각은 UTC이고 앱은 한국 시각 LocalDateTime으로 저장하기 때문이다.
+앱처럼 Java 시각을 넘기도록 고쳐서 다시 돌렸다.
+
+### 수정 — 조건부 UPDATE (compare-and-set)
+
+- `findExpiredHoldsBlocking`은 엔티티 대신 id만 읽는다
+- `ReservationRepository.expireIfPending`: `WHERE id = ? AND status = PENDING AND expires_at <= now`
+- `ReservationSeatRepository.releaseOccupied`: `WHERE reservation_id = ? AND release_key = 0`. 예매 UPDATE가 1행일 때만 부른다
+- 값이 실제로 바뀔 때만 행에 맞으므로 "UPDATE했는데 아무것도 안 바뀐" 상태가 생기지 않는다.
+  늦은 쪽은 0행이라 스냅샷 전체가 일관되게 옛 상태(`PENDING` + 만료 시각 지남 = 비점유)로 남는다.
+  INSERT의 유니크 검사는 최신 값을 보므로 통과한다
+- 벌크 UPDATE는 감사 리스너를 거치지 않아 `updatedAt`을 직접 쓴다. 벌크 UPDATE라 INSERT보다 먼저 실행되므로 이전의 `flush()` 호출은 필요 없다
+- 잠금 순서는 이전과 같다(예매 → 좌석). 비관적 락은 넣지 않았다(좌석 경합 세션 결정 1 유지)
+- `Reservation.expire()` 삭제 (작성자 결정). 만료 규칙이 엔티티와 쿼리 두 곳에 있으면 한쪽만 고쳐질 때 어긋난다. `isExpired()`는 `confirm`이 쓰므로 남겼다
+
+### 테스트
+
+- `ReservationServiceTest`: 해제 → INSERT 순서 검증으로 교체, "다른 요청이 먼저 만료시켰으면(0행) 좌석을 건드리지 않는다" 추가
+- `ReservationConcurrencyTest`: B의 스냅샷이 A의 커밋보다 앞서는 순서를 고정한 테스트 추가. 시각이 같아지는 조건까지는 고정할 수 없어
+  이 테스트만으로 이전 구현이 늘 실패하지는 않는다. 메커니즘은 위 실험으로 확정했다
+- 전체 285 → 287개

@@ -10,7 +10,9 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.io.DecodingException;
 import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.security.WeakKeyException;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -31,8 +33,7 @@ public class JwtProvider {
     private final JwtParser parser;
 
     public JwtProvider(JwtProperties properties, Clock clock) {
-        // 256비트 미만이면 WeakKeyException으로 기동이 실패한다. 약한 키로 서비스가 뜨는 것보다 낫다.
-        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(properties.secret()));
+        this.key = toKey(properties.secret());
         this.accessTokenValidity = properties.accessTokenValidity();
         this.clock = clock;
         this.parser = Jwts.parser()
@@ -43,6 +44,18 @@ public class JwtProvider {
                 .requireIssuer(ISSUER)
                 .clock(() -> Date.from(clock.instant()))
                 .build();
+    }
+
+    // 잘못된 키로 서비스가 뜨는 것보다 기동 실패가 낫다. 다만 JJWT 예외 메시지에는 어느 설정이 틀렸는지가 없어
+    // 설정 이름을 붙여 다시 던진다. 기동 시점이라 응답할 HTTP 요청이 없으므로 CustomException이 아니다.
+    // 키 값은 메시지에 넣지 않는다. 기동 로그는 비밀값이 남아도 되는 곳이 아니다.
+    private static SecretKey toKey(String secret) {
+        try {
+            return Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
+        } catch (DecodingException | WeakKeyException e) {
+            throw new IllegalStateException(
+                    "jwt.secret(JWT_SECRET)은 Base64로 인코딩한 256비트 이상 값이어야 합니다. 예: openssl rand -base64 32", e);
+        }
     }
 
     public String createAccessToken(Long userId, Role role) {

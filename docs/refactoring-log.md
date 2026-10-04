@@ -1998,3 +1998,13 @@ README 테이블 정의의 "회원" 표기는 유지한다. 코드 식별자는 
 - `saveAndFlush`의 `DataIntegrityViolationException`을 `DUPLICATE_LOGIN_ID`로 바꾸기 전에 `getMostSpecificCause()` 메시지를 `warn`으로 남긴다
 - 지금은 users의 unique 제약이 `login_id`뿐이라 응답은 맞다. 제약이 추가되면 다른 위반도 같은 응답으로 나가는데, 그때 원인을 로그로 찾을 수 있게 하는 것이 목적이다
 - 응답은 바꾸지 않았다. 바꾸려면 제약 이름으로 분기해야 하는데, 지금은 분기할 대상이 없다
+
+### 서명키 설정 오류 메시지 (`JwtProvider` 생성자)
+
+- 잘못된 키면 서버가 뜨지 못하는 동작(fail-fast)은 전부터 있었다. 문제는 메시지였다. Base64가 아니면 `DecodingException: Illegal base64 character`,
+  짧으면 `WeakKeyException`만 나오고 어느 설정이 틀렸는지(`jwt.secret` / `JWT_SECRET`)가 드러나지 않았다
+- `DecodingException | WeakKeyException`을 잡아 설정 이름과 생성 방법을 담은 `IllegalStateException`으로 다시 던진다. 원래 예외는 cause로 남긴다
+- `CustomException`을 쓰지 않은 이유: 기동 시점이라 응답할 HTTP 요청이 없고, `ErrorCode`의 상태 코드는 의미가 없다.
+  CLAUDE.md의 "IllegalStateException 직접 사용 금지"는 요청 처리 중 비즈니스 예외에 대한 규칙으로 본다
+- 키 값은 메시지에 넣지 않는다. 테스트가 메시지에 입력값이 없는지도 확인한다
+- 테스트: 짧은 키 테스트의 기대 예외 변경(+cause 확인), Base64가 아닌 키 테스트 추가

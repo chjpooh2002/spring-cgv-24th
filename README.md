@@ -1602,7 +1602,7 @@ JWT 필터는 익명 필터보다 앞에 있어야 토큰 인증이 먼저 자�
 
 | 변수 | 형식 | 비고 |
 |---|---|---|
-| `JWT_SECRET` | Base64 문자열, 디코딩 후 256비트 이상 | `openssl rand -base64 32`로 생성합니다. 짧으면 `WeakKeyException`으로 기동이 실패합니다 |
+| `JWT_SECRET` | Base64 문자열, 디코딩 후 256비트 이상 | `openssl rand -base64 32`로 생성합니다. 짧거나 Base64가 아니면 `jwt.secret`을 가리키는 메시지와 함께 기동이 실패합니다 |
 | `JWT_ACCESS_TOKEN_VALIDITY` | Duration (예: `30m`) | 로그아웃해도 만료 전까지 유효하므로 짧게 둡니다 |
 | `REFRESH_TOKEN_VALIDITY` | Duration (예: `14d`) | 액세스 토큰보다 길게 둡니다. 없으면 기동이 실패합니다 |
 | `SPRING_PROFILES_ACTIVE` | `local` | 관리자 계정 초기화는 local 프로필에서만 동작합니다 |

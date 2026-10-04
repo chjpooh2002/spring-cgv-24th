@@ -7,6 +7,7 @@ import com.ceos24.cgv.global.security.AuthUser;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.io.DecodingException;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.WeakKeyException;
 import org.junit.jupiter.api.Test;
@@ -139,11 +140,24 @@ class JwtProviderTest {
     }
 
     @Test
-    void 서명키가_256비트보다_짧으면_생성할_수_없다() {
+    void 서명키가_256비트보다_짧으면_설정_이름을_담은_예외로_생성할_수_없다() {
         String shortSecret = Base64.getEncoder().encodeToString(new byte[31]);
 
         assertThatThrownBy(() -> providerAt(NOW, shortSecret))
-                .isInstanceOf(WeakKeyException.class);
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("jwt.secret")
+                .hasCauseInstanceOf(WeakKeyException.class);
+    }
+
+    @Test
+    void 서명키가_Base64가_아니면_설정_이름을_담은_예외로_생성할_수_없다() {
+        String notBase64 = "이건-base64가-아니다!!";
+
+        assertThatThrownBy(() -> providerAt(NOW, notBase64))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("jwt.secret")
+                .hasMessageNotContaining(notBase64)
+                .hasCauseInstanceOf(DecodingException.class);
     }
 
     private static JwtProvider providerAt(Instant now, String secret) {

@@ -1517,6 +1517,34 @@ JWT 필터는 익명 필터보다 앞에 있어야 토큰 인증이 먼저 자�
 
 이 API는 인증 정보를 `Authorization: Bearer` 헤더로만 받고 세션과 인증 쿠키를 쓰지 않습니다. CSRF는 브라우저가 쿠키 같은 자격 증명을 요청에 자동으로 실어 보내는 점을 악용하는 공격인데, Bearer 헤더는 클라이언트 코드가 명시적으로 넣어야만 전송되고 다른 출처의 페이지는 그 토큰을 읽을 수 없어 위조된 요청에 인증이 실리지 않습니다. 그래서 CSRF 보호를 비활성화했습니다. 인증 수단을 쿠키로 바꾸면 이 전제가 깨지므로 다시 켜야 합니다.
 
+### CORS
+
+프런트엔드가 다른 출처(예: `http://localhost:3000`)에서 `Authorization` 헤더를 실어 요청하면, 브라우저는 본 요청 전에 **토큰 없이** `OPTIONS` preflight를 먼저 보냅니다. 이 preflight가 허용 응답을 받지 못하면 본 요청은 아예 보내지지 않습니다.
+
+**문제였던 것:** 이전에는 CORS 설정이 어디에도 없었습니다. 테스트로 재현해 보니 preflight가 모두 401이었습니다. 보호 경로는 토큰이 없어서 401이었고, 공개 경로(`/api/movies`)도 공개 규칙이 `GET`에만 걸려 있어 `OPTIONS`는 기본값인 "인증 필요"에 걸렸습니다. 이렇게 되면 브라우저에서는 어떤 API도 호출할 수 없습니다.
+
+**설정:** `SecurityConfig`에서 `http.cors()`로 Security 필터 체인 안에 CORS를 적용했습니다. CORS 필터는 인가 필터보다 앞에서 preflight에 직접 응답합니다. Spring MVC 쪽 CORS 설정(`WebMvcConfigurer`)만 두면, 인가 필터가 `DispatcherServlet`보다 먼저 실행되므로 preflight가 MVC에 닿기 전에 401로 막힙니다.
+
+| 항목 | 값 | 이유 |
+|---|---|---|
+| 허용 출처 | `CORS_ALLOWED_ORIGINS` (기본 `http://localhost:3000`) | 와일드카드(`*`)를 쓰지 않고 출처를 정확히 지정합니다 |
+| 허용 메서드 | `GET`, `POST`, `DELETE` | 컨트롤러가 실제로 쓰는 메서드만 엽니다 |
+| 허용 헤더 | `Authorization`, `Content-Type` | 토큰과 JSON 본문 |
+| 노출 헤더 | `WWW-Authenticate` | 401 응답의 인증 스킴을 프런트 코드가 읽을 수 있게 합니다 |
+| 자격 증명 | 허용 안 함 | 쿠키를 쓰지 않으므로 `Access-Control-Allow-Credentials`를 보내지 않습니다 |
+| preflight 캐시 | 1시간 | 같은 요청마다 preflight를 반복하지 않게 합니다 |
+
+preflight가 열렸다고 본 요청의 인증 규칙이 바뀌지는 않습니다. 토큰 없는 본 요청은 그대로 401입니다. 다만 401 응답에도 CORS 헤더가 붙어서, 브라우저가 오류 본문(`TOKEN_NOT_EXIST` 등)을 프런트에 전달할 수 있습니다.
+
+| 상황 | 결과 | 테스트 |
+|---|---|---|
+| 허용된 출처의 preflight, 보호 경로 | 200, `Access-Control-Allow-Origin`, 허용 메서드·헤더, 자격 증명 헤더 없음 | `허용된_출처의_preflight는_보호_경로여도_토큰_없이_통과한다` |
+| 허용된 출처의 preflight, GET만 공개된 경로 | 200 | `허용된_출처의_preflight는_GET만_공개된_경로에서도_통과한다` |
+| 허용하지 않은 출처의 preflight | 403, CORS 헤더 없음 | `허용하지_않은_출처의_preflight는_403` |
+| 허용된 출처의 본 요청, 토큰 없음 | 401 `TOKEN_NOT_EXIST` + `Access-Control-Allow-Origin` | `허용된_출처의_본_요청도_토큰이_없으면_401이고_CORS_헤더가_붙는다` |
+
+위 4개는 설정 전에 모두 실패했습니다(preflight 3개는 401, 본 요청은 CORS 헤더 없음).
+
 ### 토큰 검증 실패 처리 정책
 
 토큰 검증에 실패해도 필터는 요청을 바로 막지 않습니다. 실패 원인만 기록하고 익명 요청으로 넘기며, 거부 여부는 경로 규칙이 정합니다. 보호 API는 기록된 원인에 따라 `TOKEN_EXPIRED` 또는 `TOKEN_INVALID`로 401을 받고, 공개 조회 API는 토큰이 만료되거나 변조됐어도 익명 사용자로 정상 응답합니다. 공개 API는 사용자 정보를 쓰지 않으므로 잘못된 토큰이 권한을 얻는 경로는 없습니다. 대신 클라이언트는 공개 API 응답만으로는 토큰 만료를 알 수 없고, 보호 API를 호출했을 때 알게 됩니다.
@@ -1608,6 +1636,7 @@ JWT 필터는 익명 필터보다 앞에 있어야 토큰 인증이 먼저 자�
 | `SPRING_PROFILES_ACTIVE` | `local` | 관리자 계정 초기화는 local 프로필에서만 동작합니다 |
 | `ADMIN_LOGIN_ID` | 가입 규칙과 같은 영문 소문자·숫자 4~20자 권장 | local에서 비어 있으면 기동이 실패합니다 |
 | `ADMIN_PASSWORD` | 평문 | 기동 시 BCrypt로 해시해 저장합니다 |
+| `CORS_ALLOWED_ORIGINS` | 출처 목록, 쉼표로 구분 (예: `http://localhost:3000,https://cgv.example`) | 비밀값은 아닙니다. 없으면 `http://localhost:3000`만 허용합니다 |
 
 - 관리자 계정은 data.sql이 아니라 `ApplicationRunner`가 만듭니다. data.sql에는 해시를 박아야 하는데, 해시도 오프라인 대입 공격의 대상입니다. 이미 있으면 건너뜁니다.
 - 운영에서 부팅 부수효과로 관리자가 생기면 안 되므로 `@Profile("local")`로 제한했습니다.

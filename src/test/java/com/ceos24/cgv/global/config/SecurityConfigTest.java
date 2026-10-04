@@ -26,8 +26,10 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -141,6 +143,54 @@ class SecurityConfigTest {
         assertThat(filterChainProxy.getFilterChains().getFirst().getFilters())
                 .filteredOn(JwtAuthenticationFilter.class::isInstance)
                 .hasSize(1);
+    }
+
+    // ─── CORS ─────────────────────────────────────────────────────────────────
+    // 브라우저는 Authorization 헤더를 실은 다른 출처 요청 전에 OPTIONS preflight를 토큰 없이 보낸다.
+    // 이 요청이 인증 규칙에 걸리면 본 요청은 보내지지도 않는다.
+
+    private static final String ALLOWED_ORIGIN = "http://localhost:3000";
+
+    @Test
+    void 허용된_출처의_preflight는_보호_경로여도_토큰_없이_통과한다() throws Exception {
+        mockMvc.perform(options("/api/purchases")
+                        .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("POST")))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("authorization")))
+                // 쿠키를 쓰지 않으므로 자격 증명 전송을 허용하지 않는다
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+    }
+
+    // 공개 규칙은 GET에만 걸려 있어 OPTIONS는 공개 경로라도 기본값(인증 필요)에 걸렸다.
+    @Test
+    void 허용된_출처의_preflight는_GET만_공개된_경로에서도_통과한다() throws Exception {
+        mockMvc.perform(options("/api/movies")
+                        .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN));
+    }
+
+    @Test
+    void 허용하지_않은_출처의_preflight는_403() throws Exception {
+        mockMvc.perform(options("/api/purchases")
+                        .header(HttpHeaders.ORIGIN, "https://evil.example")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+    }
+
+    // preflight만 열렸을 뿐 본 요청의 인증 규칙은 그대로다. 401에도 CORS 헤더가 있어야 브라우저가 오류 본문을 읽는다.
+    @Test
+    void 허용된_출처의_본_요청도_토큰이_없으면_401이고_CORS_헤더가_붙는다() throws Exception {
+        mockMvc.perform(get("/api/purchases").header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("TOKEN_NOT_EXIST"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN));
     }
 
     private String expiredToken() {

@@ -19,3 +19,6 @@ jwt:
 
 refresh-token:
   validity: 14d
+
+cors:
+  allowed-origins: http://localhost:3000

@@ -2066,3 +2066,20 @@ README 테이블 정의의 "회원" 표기는 유지한다. 코드 식별자는 
 - `EXPLAIN`(임시 테스트, 삭제): 만료 행 조회 `type=ref key=FK(user_id)`, 삭제 `key=PRIMARY`. 인덱스 추가는 필요 없다(리뷰 2 판단 유지)
 
 - 테스트: 279 → 281개 (매개변수화 테스트 2건)
+
+### Security 필터 체인 CORS (`SecurityConfig`)
+
+- 리뷰의 전제("WebConfig에 CORS 설정이 있다")와 달리 CORS 설정은 어디에도 없었다. 결론은 같다: 브라우저 연동이 막힌다
+- 재현(설정 전, `SecurityConfigTest`)
+  - 보호 경로 preflight: 401
+  - 공개 경로 `/api/movies` preflight: 401. 공개 규칙이 `HttpMethod.GET`에만 걸려 있어 `OPTIONS`는 `anyRequest().authenticated()`에 걸린다
+  - 허용하지 않은 출처의 preflight: 403이 아니라 401
+  - 허용된 출처의 본 요청 401에 `Access-Control-Allow-Origin`이 없음 → 브라우저가 오류 본문을 프런트에 주지 않는다
+- 결정
+  - `http.cors(Customizer.withDefaults())` + `CorsConfigurationSource` 빈(`/api/**`). Security의 `CorsFilter`는 인가 필터보다 앞에 있다.
+    MVC 설정(`WebMvcConfigurer.addCorsMappings`)만 두면 인가 필터가 먼저 401을 내서 preflight가 MVC까지 가지 못한다
+  - preflight를 위해 `OPTIONS`를 `permitAll`로 여는 방법은 쓰지 않았다. 출처 검증 없이 모든 OPTIONS를 통과시키게 되고, CORS 응답 헤더도 여전히 없다
+  - 출처는 `CorsProperties`(`cors.allowed-origins`, `@NotEmpty`), 환경변수 `CORS_ALLOWED_ORIGINS`, 기본값 `http://localhost:3000`. 비밀값이 아니라 기본값을 둔다
+  - 메서드는 컨트롤러가 쓰는 `GET`/`POST`/`DELETE`만 연다. 헤더는 `Authorization`, `Content-Type`, 노출 헤더는 `WWW-Authenticate`
+  - `allowCredentials`는 켜지 않는다. 쿠키를 쓰지 않으므로 필요 없다(CLAUDE.md: 세션·인증 쿠키 미사용)
+- 테스트: `SecurityConfigTest` +4. 설정 전 4개 모두 실패, 설정 후 통과

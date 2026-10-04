@@ -10,10 +10,12 @@ import com.ceos24.cgv.global.security.jwt.JwtProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -22,9 +24,15 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.time.Duration;
+import java.util.List;
 
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, RefreshTokenProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, RefreshTokenProperties.class, CorsProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -36,6 +44,9 @@ public class SecurityConfig {
                 // 인증 수단이 Authorization 헤더뿐이라 브라우저가 자동으로 실어 보내는 자격 증명이 없다.
                 // CSRF는 그 자동 전송을 악용하는 공격이므로 막을 대상이 없다.
                 .csrf(AbstractHttpConfigurer::disable)
+                // preflight는 토큰 없이 오므로 인가보다 앞에서 처리해야 한다. MVC 쪽 CORS 설정은 인가 필터 뒤라 거기까지 가지 못한다.
+                // 아래 corsConfigurationSource 빈을 쓴다.
+                .cors(Customizer.withDefaults())
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
@@ -64,6 +75,23 @@ public class SecurityConfig {
                         // 새 API가 규칙 없이 추가되면 열리는 대신 잠기도록 기본값을 인증 필요로 둔다.
                         .anyRequest().authenticated());
         return http.build();
+    }
+
+    // 자격 증명(쿠키) 전송은 열지 않는다. 토큰은 Authorization 헤더로 보내므로 쿠키를 실어 보낼 이유가 없다.
+    // 메서드·헤더는 실제로 쓰는 것만 연다.
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(properties.allowedOrigins());
+        config.setAllowedMethods(List.of(HttpMethod.GET.name(), HttpMethod.POST.name(), HttpMethod.DELETE.name()));
+        config.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE));
+        // 브라우저는 노출을 허용한 헤더만 스크립트에 보여 준다. 401의 원인 스킴을 프런트가 읽을 수 있게 연다.
+        config.setExposedHeaders(List.of(HttpHeaders.WWW_AUTHENTICATE));
+        config.setMaxAge(Duration.ofHours(1));
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", config);
+        return source;
     }
 
     @Bean

@@ -89,10 +89,9 @@ public class ReservationService {
         // 7. 선점 생성 + 경쟁 상태 안전망 (동시 요청으로 유니크 제약 위반 시 포착)
         Reservation reservation = Reservation.builder()
                 .user(user).screening(screening).now(now).build();
-        int basePrice = screening.getPrice();
         // 좌석 순서가 곧 INSERT 순서이고, INSERT 순서가 곧 락 획득 순서다.
         // 정렬해 두면 [A1,A2]와 [A2,A1] 요청이 서로를 물고 도는 데드락이 생길 수 없다.
-        orderedSeats(req).forEach(s -> reservation.addSeat(s.rowNum(), s.colNum(), s.audienceType(), basePrice));
+        orderedSeats(req).forEach(s -> reservation.addSeat(s.rowNum(), s.colNum(), s.audienceType()));
 
         try {
             return ReservationResponse.from(reservationRepository.saveAndFlush(reservation), now);

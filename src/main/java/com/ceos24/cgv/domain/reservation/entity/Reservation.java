@@ -61,14 +61,15 @@ public class Reservation extends BaseTimeEntity {
     }
 
     // screening을 부모 값에서 가져와 부모-자식 불일치를 구조적으로 차단한다.
-    public void addSeat(int rowNum, int colNum, AudienceType audienceType, int basePrice) {
+    // 가격도 같은 이유로 호출자에게 받지 않는다. 받으면 회차 가격과 다른 값이 들어올 틈이 생긴다.
+    public void addSeat(int rowNum, int colNum, AudienceType audienceType) {
         ReservationSeat seat = ReservationSeat.builder()
                 .reservation(this)
                 .screening(this.screening)
                 .rowNum(rowNum)
                 .colNum(colNum)
                 .audienceType(audienceType)
-                .paidPrice(audienceType.calculatePrice(basePrice))
+                .paidPrice(audienceType.calculatePrice(this.screening.getPrice()))
                 .build();
         this.seats.add(seat);
     }

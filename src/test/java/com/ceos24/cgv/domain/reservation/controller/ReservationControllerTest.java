@@ -480,7 +480,7 @@ class ReservationControllerTest extends ControllerIntegrationTest {
                 em.find(Screening.class, screening.getId()),
                 LocalDateTime.now(clock));
         for (int i = 0; i < rowCols.length; i += 2) {
-            reservation.addSeat(rowCols[i], rowCols[i + 1], ADULT, screening.getPrice());
+            reservation.addSeat(rowCols[i], rowCols[i + 1], ADULT);
         }
         persist(reservation);
         flushAndClear();

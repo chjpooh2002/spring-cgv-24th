@@ -96,7 +96,7 @@ class MovieControllerTest extends ControllerIntegrationTest {
     private Reservation hold(User user, Screening screening, int... rowCols) {
         Reservation reservation = TestFixtures.hold(user, screening, LocalDateTime.now());
         for (int i = 0; i < rowCols.length; i += 2) {
-            reservation.addSeat(rowCols[i], rowCols[i + 1], AudienceType.ADULT, 14000);
+            reservation.addSeat(rowCols[i], rowCols[i + 1], AudienceType.ADULT);
         }
         return persist(reservation);
     }

@@ -124,8 +124,8 @@ class ReservationConcurrencyTest {
             Screening screening = em.find(Screening.class, screeningId);
             User user = em.find(User.class, userIds.get(0));
             Reservation stale = TestFixtures.hold(user, screening, longAgo);
-            stale.addSeat(2, 1, AudienceType.ADULT, PRICE);
-            stale.addSeat(2, 2, AudienceType.ADULT, PRICE);
+            stale.addSeat(2, 1, AudienceType.ADULT);
+            stale.addSeat(2, 2, AudienceType.ADULT);
             em.persist(stale);
         });
 
@@ -157,8 +157,8 @@ class ReservationConcurrencyTest {
             Reservation stale = TestFixtures.hold(
                     em.find(User.class, userIds.get(0)), em.find(Screening.class, screeningId),
                     LocalDateTime.now().minusMinutes(30));
-            stale.addSeat(2, 1, AudienceType.ADULT, PRICE);
-            stale.addSeat(2, 2, AudienceType.ADULT, PRICE);
+            stale.addSeat(2, 1, AudienceType.ADULT);
+            stale.addSeat(2, 2, AudienceType.ADULT);
             em.persist(stale);
         });
 

@@ -66,8 +66,7 @@ public class PurchaseService {
                         .orElseThrow(() -> new CustomException(ErrorCode.OUT_OF_STOCK));
                 stock.decrease(item.quantity());
 
-                Product product = products.get(item.productId());
-                purchase.addItem(product, item.quantity(), product.getPrice());
+                purchase.addItem(products.get(item.productId()), item.quantity());
             }
         } catch (ConcurrencyFailureException e) {
             // 락 대기 타임아웃. 품절이라는 뜻이 아니라 판정하지 못했다는 뜻이라 재시도를 안내한다.

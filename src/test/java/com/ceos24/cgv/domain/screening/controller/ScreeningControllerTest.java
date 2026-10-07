@@ -101,8 +101,8 @@ class ScreeningControllerTest extends ControllerIntegrationTest {
                 TestFixtures.screening(standardHall, movieA, TODAY.atTime(20, 0), 14000));
         User user = persist(TestFixtures.user("testuser01"));
         Reservation hold = TestFixtures.hold(user, screening, NOW);
-        hold.addSeat(1, 1, AudienceType.ADULT, 14000);
-        hold.addSeat(1, 2, AudienceType.ADULT, 14000);
+        hold.addSeat(1, 1, AudienceType.ADULT);
+        hold.addSeat(1, 2, AudienceType.ADULT);
         persist(hold);
         flushAndClear();
 
@@ -204,8 +204,8 @@ class ScreeningControllerTest extends ControllerIntegrationTest {
         User user = persist(TestFixtures.user("testuser01"));
 
         Reservation reservation = TestFixtures.hold(user, screening, NOW);
-        reservation.addSeat(1, 7, AudienceType.ADULT, 14000);
-        reservation.addSeat(2, 3, AudienceType.ADULT, 14000);
+        reservation.addSeat(1, 7, AudienceType.ADULT);
+        reservation.addSeat(2, 3, AudienceType.ADULT);
         persist(reservation);
         flushAndClear();
 

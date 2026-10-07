@@ -49,7 +49,9 @@ public class Purchase extends BaseTimeEntity {
     }
 
     // 자식 항목 합계와 어긋나지 않도록 이 메서드 안에서만 총액을 갱신한다.
-    public void addItem(Product product, int quantity, int unitPrice) {
+    // 단가는 지금 상품 가격을 복사한다. 호출자에게 받으면 상품 가격과 다른 값이 들어올 틈이 생긴다.
+    public void addItem(Product product, int quantity) {
+        int unitPrice = product.getPrice();
         PurchaseProduct item = PurchaseProduct.builder()
                 .purchase(this)
                 .product(product)

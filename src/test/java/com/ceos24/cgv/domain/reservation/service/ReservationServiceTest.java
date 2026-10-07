@@ -435,7 +435,7 @@ class ReservationServiceTest {
                 .build();
         ReflectionTestUtils.setField(reservation, "id", id);
         for (int i = 0; i < rowCols.length; i += 2) {
-            reservation.addSeat(rowCols[i], rowCols[i + 1], AudienceType.ADULT, 14000);
+            reservation.addSeat(rowCols[i], rowCols[i + 1], AudienceType.ADULT);
         }
         return reservation;
     }

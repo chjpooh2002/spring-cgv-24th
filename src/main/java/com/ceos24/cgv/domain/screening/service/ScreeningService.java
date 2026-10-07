@@ -1,5 +1,6 @@
 package com.ceos24.cgv.domain.screening.service;
 
+import com.ceos24.cgv.domain.branch.entity.Branch;
 import com.ceos24.cgv.domain.branch.entity.TheaterType;
 import com.ceos24.cgv.global.exception.CustomException;
 import com.ceos24.cgv.global.exception.ErrorCode;
@@ -45,17 +46,8 @@ public class ScreeningService {
                                         TheaterType theaterType, TimeSlot timeSlot) {
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDate targetDate = date != null ? date : now.toLocalDate();
-
-        LocalDateTime endExclusive = timeSlot != null
-                ? timeSlot.endOn(targetDate)
-                : targetDate.plusDays(1).atStartOfDay();
-        // 이미 시작한 회차는 예매할 수 없으므로 뺀다. 지난 날짜를 조회하면 결과가 비게 된다.
-        LocalDateTime slotStart = timeSlot != null
-                ? timeSlot.startOn(targetDate)
-                : targetDate.atStartOfDay();
-        LocalDateTime startInclusive = slotStart.isAfter(now) ? slotStart : now;
-
-        if (!startInclusive.isBefore(endExclusive)) {
+        SearchWindow window = searchWindow(targetDate, timeSlot, now);
+        if (window.isEmpty()) {
             return new ScreeningListResponse(targetDate, List.of());
         }
 
@@ -65,8 +57,8 @@ public class ScreeningService {
                 filterByBranch,
                 filterByBranch ? branchIds : NO_BRANCH_FILTER,
                 theaterType,
-                startInclusive,
-                endExclusive);
+                window.startInclusive(),
+                window.endExclusive());
 
         return new ScreeningListResponse(targetDate, groupByBranch(screenings, now));
     }
@@ -85,6 +77,22 @@ public class ScreeningService {
         return ScreeningSeatsResponse.from(screening, labels);
     }
 
+    // 시간대를 고르지 않으면 그날 하루 전체다. 이미 시작한 회차는 예매할 수 없으므로 시작을 지금으로 당긴다.
+    // 지난 날짜를 조회하면 시작이 끝보다 뒤가 되어 빈 범위가 된다.
+    private SearchWindow searchWindow(LocalDate targetDate, TimeSlot timeSlot, LocalDateTime now) {
+        LocalDateTime slotStart = timeSlot != null ? timeSlot.startOn(targetDate) : targetDate.atStartOfDay();
+        LocalDateTime endExclusive = timeSlot != null ? timeSlot.endOn(targetDate) : targetDate.plusDays(1).atStartOfDay();
+        LocalDateTime startInclusive = slotStart.isAfter(now) ? slotStart : now;
+        return new SearchWindow(startInclusive, endExclusive);
+    }
+
+    private record SearchWindow(LocalDateTime startInclusive, LocalDateTime endExclusive) {
+
+        boolean isEmpty() {
+            return !startInclusive.isBefore(endExclusive);
+        }
+    }
+
     // 쿼리가 지점 이름·시작 시각 순으로 정렬해 두므로 순서를 보존하며 묶기만 한다.
     private List<BranchGroup> groupByBranch(List<Screening> screenings, LocalDateTime now) {
         if (screenings.isEmpty()) {
@@ -97,10 +105,10 @@ public class ScreeningService {
                         LinkedHashMap::new, Collectors.toList()));
 
         return byBranchId.values().stream()
-                .map(inBranch -> new BranchGroup(
-                        inBranch.get(0).getTheater().getBranch().getId(),
-                        inBranch.get(0).getTheater().getBranch().getName(),
-                        groupByTheaterType(inBranch, occupied)))
+                .map(inBranch -> {
+                    Branch branch = inBranch.getFirst().getTheater().getBranch();
+                    return new BranchGroup(branch.getId(), branch.getName(), groupByTheaterType(inBranch, occupied));
+                })
                 .toList();
     }
 

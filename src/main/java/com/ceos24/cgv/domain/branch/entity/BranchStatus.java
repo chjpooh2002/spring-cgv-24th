@@ -16,7 +16,7 @@ public enum BranchStatus {
 
     public String getDisplayName() { return displayName; }
 
-    public boolean isReservable() {
+    public boolean isOperating() {
         return this == OPEN;
     }
 }

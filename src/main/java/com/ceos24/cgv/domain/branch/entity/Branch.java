@@ -50,7 +50,7 @@ public class Branch extends BaseTimeEntity {
         this.imageUrl = imageUrl;
     }
 
-    public boolean isReservable() {
-        return status.isReservable();
+    public boolean isOperating() {
+        return status.isOperating();
     }
 }

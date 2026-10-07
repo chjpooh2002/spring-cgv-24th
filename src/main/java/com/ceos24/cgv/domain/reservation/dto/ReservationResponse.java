@@ -7,11 +7,10 @@ import com.ceos24.cgv.domain.reservation.entity.ReservationStatus;
 import com.ceos24.cgv.domain.screening.entity.Screening;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 
 public record ReservationResponse(
         Long id,
@@ -133,11 +132,9 @@ public record ReservationResponse(
 
     // 행은 예매 id 내림차순으로 온다. LinkedHashMap이라 묶은 뒤에도 그 순서가 유지된다.
     public static List<ReservationResponse> listOf(List<ReservationDetailRow> rows, LocalDateTime now) {
-        Map<Long, List<ReservationDetailRow>> byReservation = new LinkedHashMap<>();
-        for (ReservationDetailRow row : rows) {
-            byReservation.computeIfAbsent(row.reservationId(), id -> new ArrayList<>()).add(row);
-        }
-        return byReservation.values().stream()
+        return rows.stream()
+                .collect(Collectors.groupingBy(ReservationDetailRow::reservationId, LinkedHashMap::new, Collectors.toList()))
+                .values().stream()
                 .map(group -> of(group, now))
                 .toList();
     }

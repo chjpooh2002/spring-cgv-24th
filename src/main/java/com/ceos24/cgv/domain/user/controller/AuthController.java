@@ -1,12 +1,11 @@
 package com.ceos24.cgv.domain.user.controller;
 
 import com.ceos24.cgv.domain.user.dto.LoginRequest;
-import com.ceos24.cgv.domain.user.dto.LoginResponse;
 import com.ceos24.cgv.domain.user.dto.LogoutRequest;
 import com.ceos24.cgv.domain.user.dto.SignupRequest;
 import com.ceos24.cgv.domain.user.dto.SignupResponse;
 import com.ceos24.cgv.domain.user.dto.TokenReissueRequest;
-import com.ceos24.cgv.domain.user.dto.TokenReissueResponse;
+import com.ceos24.cgv.domain.user.dto.TokenResponse;
 import com.ceos24.cgv.domain.user.service.AuthService;
 import com.ceos24.cgv.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -37,13 +36,13 @@ public class AuthController {
 
     @Operation(summary = "로그인 — Access Token 발급. 계정 없음과 비밀번호 불일치는 같은 응답")
     @PostMapping("/login")
-    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req) {
+    public ApiResponse<TokenResponse> login(@Valid @RequestBody LoginRequest req) {
         return ApiResponse.success(authService.login(req));
     }
 
     @Operation(summary = "액세스 토큰 재발급 — 리프레시 토큰도 새로 발급하고, 보낸 토큰은 사용 완료되어 다시 쓸 수 없음")
     @PostMapping("/reissue")
-    public ApiResponse<TokenReissueResponse> reissue(@Valid @RequestBody TokenReissueRequest req) {
+    public ApiResponse<TokenResponse> reissue(@Valid @RequestBody TokenReissueRequest req) {
         return ApiResponse.success(authService.reissue(req));
     }
 

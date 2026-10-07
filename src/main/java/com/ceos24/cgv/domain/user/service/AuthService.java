@@ -1,12 +1,11 @@
 package com.ceos24.cgv.domain.user.service;
 
 import com.ceos24.cgv.domain.user.dto.LoginRequest;
-import com.ceos24.cgv.domain.user.dto.LoginResponse;
 import com.ceos24.cgv.domain.user.dto.LogoutRequest;
 import com.ceos24.cgv.domain.user.dto.SignupRequest;
 import com.ceos24.cgv.domain.user.dto.SignupResponse;
 import com.ceos24.cgv.domain.user.dto.TokenReissueRequest;
-import com.ceos24.cgv.domain.user.dto.TokenReissueResponse;
+import com.ceos24.cgv.domain.user.dto.TokenResponse;
 import com.ceos24.cgv.domain.user.entity.User;
 import com.ceos24.cgv.domain.user.repository.UserRepository;
 import com.ceos24.cgv.global.exception.CustomException;
@@ -68,7 +67,7 @@ public class AuthService {
     }
 
     @Transactional
-    public LoginResponse login(LoginRequest req) {
+    public TokenResponse login(LoginRequest req) {
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
@@ -82,7 +81,7 @@ public class AuthService {
         LoginUserDetails principal = (LoginUserDetails) authentication.getPrincipal();
         String accessToken = jwtProvider.createAccessToken(principal.getUserId(), principal.getRole());
         String refreshToken = refreshTokenService.issue(principal.getUserId());
-        return LoginResponse.of(accessToken, jwtProvider.getAccessTokenValiditySeconds(),
+        return TokenResponse.of(accessToken, jwtProvider.getAccessTokenValiditySeconds(),
                 refreshToken, refreshTokenProvider.getValiditySeconds());
     }
 
@@ -90,7 +89,7 @@ public class AuthService {
     // 트랜잭션 설정과 DB 오류 분류에 달려 있고, 롤백 전용이면 커밋 시점에 UnexpectedRollbackException(500)이 된다.
     // SUPPORTS인 이유: 스스로 트랜잭션을 열지 않되, 바깥 트랜잭션이 있으면(시나리오 테스트) 합류해 미커밋 데이터를 본다.
     @Transactional(propagation = Propagation.SUPPORTS)
-    public TokenReissueResponse reissue(TokenReissueRequest req) {
+    public TokenResponse reissue(TokenReissueRequest req) {
         try {
             return refreshTokenService.reissue(req.refreshToken());
         } catch (ConcurrencyFailureException e) {

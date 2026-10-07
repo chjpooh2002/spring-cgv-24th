@@ -1,6 +1,6 @@
 package com.ceos24.cgv.domain.user.service;
 
-import com.ceos24.cgv.domain.user.dto.TokenReissueResponse;
+import com.ceos24.cgv.domain.user.dto.TokenResponse;
 import com.ceos24.cgv.domain.user.entity.RefreshToken;
 import com.ceos24.cgv.domain.user.entity.User;
 import com.ceos24.cgv.domain.user.repository.RefreshTokenRepository;
@@ -65,7 +65,7 @@ public class RefreshTokenService {
     // 역할은 DB의 사용자에서 읽는다. 권한이 바뀌었다면 재발급 시점에 반영된다.
     // noRollbackFor: 재사용 탐지의 묶음 폐기는 401과 함께 커밋되어야 한다. 쓰기 뒤에 예외를 던지는 곳은 그 분기뿐이다.
     @Transactional(noRollbackFor = CustomException.class)
-    public TokenReissueResponse reissue(String rawRefreshToken) {
+    public TokenResponse reissue(String rawRefreshToken) {
         // 400으로 따로 알리지 않는다. 거부 응답은 원인과 관계없이 같아야 하고, 받은 값을 검증 오류 응답으로 되돌려 주지도 않는다.
         if (!refreshTokenProvider.hasIssuedLength(rawRefreshToken)) {
             throw rejected("length_mismatch", null);
@@ -88,7 +88,7 @@ public class RefreshTokenService {
 
         User user = current.getUser();
         String accessToken = jwtProvider.createAccessToken(user.getId(), user.getRole());
-        return TokenReissueResponse.of(accessToken, jwtProvider.getAccessTokenValiditySeconds(),
+        return TokenResponse.of(accessToken, jwtProvider.getAccessTokenValiditySeconds(),
                 nextRawToken, Duration.between(now, next.getExpiresAt()).toSeconds());
     }
 

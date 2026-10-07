@@ -1904,3 +1904,150 @@ preflight가 열렸다고 본 요청의 인증 규칙이 바뀌지는 않습니�
 - **왜 나눴나요:** 잠금 대기, 교착, 간격 잠금(gap lock)은 DB 엔진마다 동작이 다르고, H2의 MySQL 모드는 문법만 맞춰 줄 뿐 InnoDB의 잠금 규칙을 흉내 내지 않습니다. 실제로 리프레시 토큰 정리의 교착은 H2에서는 재현되지 않고 MySQL에서만 났습니다. 나머지 테스트는 잠금과 무관해 빠른 H2를 유지합니다.
 - **구성:** `support/MySqlContainerConfig`가 컨테이너를 `@ServiceConnection` 빈으로 등록하고, 동시성 테스트가 `@Import`로 가져옵니다. 컨테이너가 빈이라 4개 클래스가 같은 Spring 컨텍스트를 공유하고 컨테이너도 하나만 뜹니다. 잠금 대기 한도는 운영 설정과 같은 3초(`--innodb-lock-wait-timeout=3`)입니다.
 - **필요한 것:** Docker가 실행 중이어야 합니다. Docker가 없으면 이 4개는 건너뛰지 않고 **실패**합니다. 동시성 검증이 조용히 빠지는 것을 막기 위해서입니다. 처음 실행할 때는 `mysql:8.0` 이미지를 받느라 시간이 더 걸립니다.
+
+## 4주차 리팩토링
+
+객체지향 원칙(SOLID, 캡슐화)과 KISS·YAGNI·DRY를 기준으로 기존 코드를 다시 읽고, 문제가 분명한 10곳을 고쳤습니다. 모두 동작을 바꾸지 않는 리팩토링이라 API 요청·응답 형식은 그대로이고, 단계마다 전체 테스트 287개가 통과하는 것을 확인했습니다.
+
+| # | 대상 | 원칙 |
+|---|---|---|
+| 1 | 선점 만료 판정 규칙을 한 곳으로 | DRY |
+| 2 | 결제 시점 가격 복사를 엔티티가 책임 | 캡슐화 |
+| 3 | 엔티티 존재 검증을 Repository로 | DRY |
+| 4 | 예매 생성 메서드 책임 분리 | SRP |
+| 5 | 매점 구매 메서드 책임 분리 | SRP |
+| 6 | 구매 시각을 주입된 Clock 기준으로 | DIP |
+| 7 | 회차 검색의 시간 범위 계산 분리 | SRP |
+| 8 | 내역 행 묶기 단순화 | KISS |
+| 9 | 입력값 오류 응답 생성 중복 제거 | DRY |
+| 10 | 로그인·재발급 토큰 응답 DTO 통합 | DRY |
+
+### 1. 선점 만료 판정 규칙을 한 곳으로 — DRY
+
+"결제 대기(`PENDING`)이고 만료 시각이 지났으면 만료"라는 규칙이 두 곳에 따로 있었습니다. 결제할 때 쓰는 `Reservation.isExpired()`와 조회 응답을 만드는 `ReservationResponse.resolveStatus()`입니다. 한쪽 기준만 바뀌면 결제는 만료로 거절되는데 조회 화면에는 "결제대기"로 보이는 식으로 두 경로가 어긋납니다.
+
+중복이 생긴 이유는 조회 경로가 엔티티 없이 프로젝션(스칼라 행)만 받아서 엔티티 메서드를 부를 수 없었기 때문입니다. 그래서 규칙을 엔티티가 아니라 **상태 enum**으로 옮겨, 엔티티와 DTO가 같은 메서드를 쓰게 했습니다.
+
+```java
+// ReservationStatus
+public boolean isHoldExpired(LocalDateTime expiresAt, LocalDateTime now) {
+    return this == PENDING && !now.isBefore(expiresAt);
+}
+
+public ReservationStatus resolve(LocalDateTime expiresAt, LocalDateTime now) {
+    return isHoldExpired(expiresAt, now) ? EXPIRED : this;
+}
+```
+
+### 2. 결제 시점 가격 복사를 엔티티가 책임 — 캡슐화
+
+```java
+// 전
+reservation.addSeat(row, col, audienceType, screening.getPrice());
+purchase.addItem(product, quantity, product.getPrice());
+
+// 후
+reservation.addSeat(row, col, audienceType);
+purchase.addItem(product, quantity);
+```
+
+"결제 시점 가격을 복사 저장한다"는 도메인 규칙인데, 서비스가 가격을 꺼내 엔티티에 다시 넣어 주고 있었습니다. 예매는 이미 회차를, 구매는 상품을 들고 있으므로 가격을 따로 받을 이유가 없습니다. 가격을 인자로 열어 두면 호출하는 쪽이 회차 가격과 다른 값을 넣어도 막을 방법이 없습니다.
+
+이제 가격은 엔티티 안에서만 정해집니다. `addSeat()`가 회차를 부모 예매에서 가져와 부모-자식 불일치를 막던 기존 방식과 같은 이유입니다.
+
+### 3. 엔티티 존재 검증을 Repository로 — DRY
+
+`findById(id).orElseThrow(() -> new CustomException(USER_NOT_FOUND))`와 `if (!existsById(id)) throw ...`가 서비스 7개에 14번 반복됐습니다. "사용자가 없으면 어떤 오류로 알리는가"라는 같은 지식이 흩어져 있어, 오류 코드를 바꾸려면 14곳을 모두 찾아야 했습니다.
+
+`UserRepository`, `BranchRepository`, `MovieRepository`에 default 메서드 `getByIdOrThrow(id)`, `validateExists(id)`를 두었습니다.
+
+```java
+// 전
+User user = userRepository.findById(userId)
+        .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+// 후
+User user = userRepository.getByIdOrThrow(userId);
+```
+
+- **서비스가 아니라 Repository에 둔 이유:** 이 프로젝트는 다른 도메인의 service를 참조하지 않고 repository만 참조합니다. 예매·매점 서비스도 사용자와 지점을 찾아야 하므로, 모든 도메인이 함께 쓸 수 있는 자리는 Repository뿐입니다.
+- **쓰는 곳이 없는 메서드는 만들지 않았습니다.** 영화는 존재 여부만 확인하는 곳이 없어 `MovieRepository`에는 `validateExists`를 두지 않았습니다(YAGNI).
+- **테스트:** Mockito mock은 default 메서드까지 가짜로 만들어 null을 돌려줍니다. 서비스 단위 테스트의 `UserRepository` mock에 `Answers.CALLS_REAL_METHODS`를 붙여 default 메서드는 실제 코드대로 돌고, 기존 `findById` stub이 그대로 쓰이게 했습니다.
+
+### 4. 예매 생성 메서드 책임 분리 — SRP
+
+`ReservationService.create()`는 주석으로 1~7번 단계를 나눈 60줄짜리 메서드였습니다. 회차·사용자 조회, 좌석 범위 검증, 요청 안의 중복 검증, 만료 선점 정리, 점유 확인, 생성, 저장 예외 번역을 혼자 했습니다. 주석으로 단계를 나눠야 읽힌다는 것 자체가 한 메서드가 여러 책임을 지고 있다는 신호입니다.
+
+```java
+public ReservationResponse create(Long userId, ReservationCreateRequest req) {
+    // 회차·사용자 조회
+    validateSeats(screening.getTheater().getTheaterType(), req.seats());
+    releaseExpiredHolds(screening.getId(), req.seats(), now);
+    ensureNotOccupied(screening.getId(), req.seats(), now);
+    // 예매 생성 + 좌석 추가
+    return ReservationResponse.from(saveHold(reservation), now);
+}
+```
+
+| 메서드 | 책임 |
+|---|---|
+| `validateSeats()` | 좌석 범위 + 요청 안의 중복 좌석 |
+| `releaseExpiredHolds()` | 요청한 좌석을 막고 있는 만료 선점 해제 |
+| `ensureNotOccupied()` | 이미 점유된 좌석 사전 확인 |
+| `saveHold()` | 저장 + DB 예외를 오류 코드로 번역 (유니크 위반 → `SEAT_ALREADY_RESERVED`, 락 경합 → `SEAT_RESERVATION_CONFLICT`) |
+
+이제 `create()`는 흐름만 보여주고, 각 단계의 세부와 이유(검증 순서, 데드락 방지 정렬, 예외 번역 기준)는 해당 메서드의 주석에 있습니다.
+
+같은 클래스 안에서 좌석 좌표를 키로 만드는 방식이 두 가지였던 것도 고쳤습니다. 점유 확인은 `"2:3"` 문자열을, 만료 선점 조회는 `2 * 100 + 3` 정수를 썼습니다. `ReservationSeat.key(row, col)` 하나로 통일하고 좌석 라벨 규칙(`label()`) 옆에 두어, 좌석 좌표 규칙을 한 곳에 모았습니다. 요청 안의 중복 검사도 이 키로 하므로, 키가 겹치지 않는 조건(열 100 미만)을 보장하는 범위 검사를 반드시 먼저 합니다.
+
+### 5. 매점 구매 메서드 책임 분리 — SRP
+
+- **이름이 하는 일을 숨기고 있었습니다.** `sortedByProductId()`는 이름은 "정렬"인데 중복 상품 검증까지 했습니다. 호출부만 읽어서는 여기서 검증이 일어난다는 것을 알 수 없습니다. 검증(`validateNoDuplicateProducts()`)과 정렬을 나눴습니다.
+- **정렬은 재고 차감 안으로 옮겼습니다.** 상품 id 순으로 정렬하는 이유가 재고 락을 잡는 순서를 고정해 데드락을 막는 것이므로, 락을 잡는 코드 옆이 맞는 자리입니다. 재고 락·차감·항목 추가·락 타임아웃 번역은 `deductStocks()`로, 지점 조회와 운영 여부 확인은 `getOperatingBranch()`로 뺐습니다.
+- **운영 판정 메서드 이름을 바꿨습니다.** `Branch.isReservable()` → `isOperating()`. 매점 구매가 "예매 가능한가"를 묻는 것은 의미가 맞지 않고, 실패 코드도 `BRANCH_NOT_OPERATING`이었습니다.
+
+검증 순서는 그대로라, 없는 지점과 중복 상품이 함께 와도 전처럼 중복 상품 400이 먼저 납니다.
+
+### 6. 구매 시각을 주입된 Clock 기준으로 — DIP
+
+다른 코드는 모두 주입받은 `Clock`으로 현재 시각을 정하는데, `Purchase` 생성자만 `LocalDateTime.now()`로 시스템 시계를 직접 읽었습니다. 엔티티가 구체적인 시계에 의존하니 테스트에서 구매 시각을 고정할 수 없고, 예매와 구매가 서로 다른 시계를 보게 됩니다.
+
+예매(`Reservation.builder().now(now)`)처럼 시각을 빌더로 받도록 바꾸고, `PurchaseService`가 `Clock`을 주입받아 넘깁니다.
+
+### 7. 회차 검색의 시간 범위 계산 분리 — SRP
+
+`ScreeningService.search()`가 조회 시간 범위 계산과 조회·그룹핑을 함께 했습니다. 범위 계산은 "날짜를 안 고르면 오늘 → 시간대를 안 고르면 하루 전체 → 이미 시작한 회차는 예매할 수 없으니 시작을 지금으로 당기기"의 세 단계입니다.
+
+계산을 `searchWindow()`로 빼고 결과를 `SearchWindow(startInclusive, endExclusive)` record로 받습니다. 지난 날짜를 조회할 때처럼 범위가 비는 경우(`!start.isBefore(end)`)는 `isEmpty()`라는 이름으로 드러냈습니다. 이 서비스 밖에서는 쓰지 않으므로 서비스 안의 private record로 두었습니다.
+
+### 8. 내역 행 묶기 단순화 — KISS
+
+예매·구매 내역은 "헤더 × 항목" 행으로 받아 id별로 묶습니다. `LinkedHashMap`을 만들어 `computeIfAbsent`로 채우는 반복문을 직접 짰는데, 표준 컬렉터 한 번이면 되는 일입니다.
+
+```java
+// 전
+Map<Long, List<PurchaseHistoryRow>> byPurchase = new LinkedHashMap<>();
+for (PurchaseHistoryRow row : rows) {
+    byPurchase.computeIfAbsent(row.purchaseId(), id -> new ArrayList<>()).add(row);
+}
+return byPurchase.values().stream()...
+
+// 후
+return rows.stream()
+        .collect(Collectors.groupingBy(PurchaseHistoryRow::purchaseId, LinkedHashMap::new, Collectors.toList()))
+        .values().stream()...
+```
+
+행 순서(최신순)를 지키는 `LinkedHashMap`은 그대로 씁니다. 첫 행 접근도 `get(0)`과 `getFirst()`가 섞여 있던 것을 `getFirst()`로 맞췄습니다.
+
+### 9. 입력값 오류 응답 생성 중복 제거 — DRY
+
+`GlobalExceptionHandler`의 세 핸들러(검증 실패, 타입 불일치, 필수 파라미터 누락)가 같은 400 응답 생성 코드와 `value != null ? value.toString() : null`을 각각 반복했습니다. 응답 생성은 `invalidInput(fieldErrors)`로, 값 변환은 `FieldError.of(field, Object value, reason)` 정적 팩토리로 모았습니다. `FieldError` 생성자는 private으로 바꿔 만드는 경로를 하나로 줄였습니다.
+
+본문 파싱 실패 핸들러는 그대로 두었습니다. 이 오류는 필드 오류 목록 없이 응답하는데, 같은 메서드로 합치면 응답에 빈 `errors: []`가 새로 생겨 응답 형식이 바뀝니다.
+
+### 10. 로그인·재발급 토큰 응답 DTO 통합 — DRY
+
+`LoginResponse`와 `TokenReissueResponse`는 필드 5개, `BEARER` 상수, 팩토리 메서드까지 똑같았습니다. 둘 다 "새 토큰 한 쌍 발급"이라는 같은 일의 결과이므로 `TokenResponse` 하나로 합쳤습니다.
+
+복사본이 실제로 어긋나기 시작한 상태였습니다. `refreshTokenExpiresIn` 설명이 한쪽은 "유효 시간", 다른 쪽은 "남은 유효 시간"이었는데, 실제 값은 둘 다 남은 시간입니다. 로그인 직후에는 남은 시간이 전체 유효기간과 같을 뿐입니다. 이제 설명은 한 곳에 한 번만 있고, 필드를 더할 때 한쪽을 빠뜨릴 일도 없습니다. JSON 응답 모양은 같아서 클라이언트에는 영향이 없고, Swagger의 스키마 이름만 바뀝니다.

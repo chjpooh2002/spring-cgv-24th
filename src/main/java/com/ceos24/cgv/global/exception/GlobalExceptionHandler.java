@@ -1,6 +1,7 @@
 package com.ceos24.cgv.global.exception;
 
 import com.ceos24.cgv.global.response.ApiResponse;
+import com.ceos24.cgv.global.response.ApiResponse.FieldError;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -26,38 +27,23 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleValid(MethodArgumentNotValidException e) {
-        List<ApiResponse.FieldError> fieldErrors = e.getBindingResult().getFieldErrors().stream()
-                .map(fe -> new ApiResponse.FieldError(
-                        fe.getField(),
-                        fe.getRejectedValue() != null ? fe.getRejectedValue().toString() : null,
-                        fe.getDefaultMessage()
-                ))
-                .toList();
-        return ResponseEntity.badRequest()
-                             .body(ApiResponse.error(ErrorCode.INVALID_INPUT_VALUE, fieldErrors));
+        return invalidInput(e.getBindingResult().getFieldErrors().stream()
+                .map(fe -> FieldError.of(fe.getField(), fe.getRejectedValue(), fe.getDefaultMessage()))
+                .toList());
     }
 
     // enum 쿼리 파라미터에 없는 값이 들어오면 바인딩 단계에서 터진다. 400이어야 할 오류다.
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
         log.warn("[TypeMismatch] {}={}", e.getName(), e.getValue());
-        List<ApiResponse.FieldError> fieldErrors = List.of(new ApiResponse.FieldError(
-                e.getName(),
-                e.getValue() != null ? e.getValue().toString() : null,
-                "허용되지 않은 값입니다."
-        ));
-        return ResponseEntity.badRequest()
-                             .body(ApiResponse.error(ErrorCode.INVALID_INPUT_VALUE, fieldErrors));
+        return invalidInput(List.of(FieldError.of(e.getName(), e.getValue(), "허용되지 않은 값입니다.")));
     }
 
     // 필수 쿼리 파라미터 누락. 처리하지 않으면 아래 Exception 핸들러로 떨어져 500이 된다.
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ApiResponse<Void>> handleMissingParam(MissingServletRequestParameterException e) {
         log.warn("[MissingParam] {}", e.getParameterName());
-        List<ApiResponse.FieldError> fieldErrors = List.of(new ApiResponse.FieldError(
-                e.getParameterName(), null, "필수 파라미터입니다."));
-        return ResponseEntity.badRequest()
-                             .body(ApiResponse.error(ErrorCode.INVALID_INPUT_VALUE, fieldErrors));
+        return invalidInput(List.of(FieldError.of(e.getParameterName(), null, "필수 파라미터입니다.")));
     }
 
     // JSON 문법 오류, 날짜 형식 오류, enum에 없는 값처럼 본문을 객체로 바꾸지 못한 경우.
@@ -74,5 +60,10 @@ public class GlobalExceptionHandler {
         log.error("[Unhandled] ", e);
         return ResponseEntity.internalServerError()
                              .body(ApiResponse.error(ErrorCode.INTERNAL_SERVER_ERROR));
+    }
+
+    private ResponseEntity<ApiResponse<Void>> invalidInput(List<FieldError> fieldErrors) {
+        return ResponseEntity.badRequest()
+                             .body(ApiResponse.error(ErrorCode.INVALID_INPUT_VALUE, fieldErrors));
     }
 }

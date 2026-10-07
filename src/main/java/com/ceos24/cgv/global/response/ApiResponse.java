@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Getter;
 
 import java.util.List;
+import java.util.Objects;
 
 @Getter
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -22,10 +23,15 @@ public class ApiResponse<T> {
         private final String value;
         private final String reason;
 
-        public FieldError(String field, String value, String reason) {
+        private FieldError(String field, String value, String reason) {
             this.field = field;
             this.value = value;
             this.reason = reason;
+        }
+
+        // 거부된 값은 타입이 제각각이라 Object로 받아 문자열로 바꾼다. 값이 없으면 응답에서 빠지도록 null로 둔다.
+        public static FieldError of(String field, Object value, String reason) {
+            return new FieldError(field, Objects.toString(value, null), reason);
         }
     }
 

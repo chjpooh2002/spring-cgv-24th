@@ -21,6 +21,8 @@ import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +39,7 @@ public class PurchaseService {
     private final ProductRepository productRepository;
     private final BranchRepository branchRepository;
     private final UserRepository userRepository;
+    private final Clock clock;
 
     // 재고 확보부터 저장까지 한 트랜잭션이다. 어느 단계에서 예외가 나도 차감이 전부 롤백되어
     // 부분 성공이 없고, 잡았던 재고 행 락도 함께 풀린다.
@@ -48,7 +51,8 @@ public class PurchaseService {
         // 가격·이름은 여기서 읽고, 재고 락 쿼리는 product를 건드리지 않는다
         Map<Long, Product> products = findProducts(req.items());
 
-        Purchase purchase = Purchase.builder().user(user).branch(branch).build();
+        Purchase purchase = Purchase.builder()
+                .user(user).branch(branch).now(LocalDateTime.now(clock)).build();
         deductStocks(purchase, branch.getId(), req.items(), products);
 
         // mock 결제. 재고를 확보한 뒤에 판정해야 결제만 되고 품절인 경우가 생기지 않는다.

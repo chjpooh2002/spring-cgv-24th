@@ -74,7 +74,7 @@ public class Reservation extends BaseTimeEntity {
     }
 
     public boolean isExpired(LocalDateTime now) {
-        return this.status == ReservationStatus.PENDING && !now.isBefore(this.expiresAt);
+        return this.status.isHoldExpired(this.expiresAt, now);
     }
 
     public void confirm(LocalDateTime now) {

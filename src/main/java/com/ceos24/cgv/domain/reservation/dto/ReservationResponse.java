@@ -71,8 +71,6 @@ public record ReservationResponse(
         }
     }
 
-    // 만료된 선점은 DB 상태가 아직 PENDING이어도 이미 좌석을 놓은 것이나 마찬가지다.
-    // 정리는 다음 좌석 선점 요청이 하고, 조회는 현재 사실만 보여준다.
     public static ReservationResponse from(Reservation r, LocalDateTime now) {
         List<SeatSummary> seats = r.getSeats().stream()
                 .sorted(Comparator.comparingInt(ReservationSeat::getRowNum)
@@ -80,7 +78,7 @@ public record ReservationResponse(
                 .map(SeatSummary::from)
                 .toList();
 
-        ReservationStatus status = resolveStatus(r.getStatus(), r.getExpiresAt(), now);
+        ReservationStatus status = r.getStatus().resolve(r.getExpiresAt(), now);
 
         return new ReservationResponse(
                 r.getId(),
@@ -109,7 +107,7 @@ public record ReservationResponse(
                 .mapToInt(ReservationDetailRow::paidPrice)
                 .sum();
 
-        ReservationStatus status = resolveStatus(head.status(), head.expiresAt(), now);
+        ReservationStatus status = head.status().resolve(head.expiresAt(), now);
 
         return new ReservationResponse(
                 head.reservationId(),
@@ -142,13 +140,5 @@ public record ReservationResponse(
         return byReservation.values().stream()
                 .map(group -> of(group, now))
                 .toList();
-    }
-
-    // 프로젝션 경로에는 엔티티가 없어 Reservation.isExpired()를 부를 수 없다.
-    private static ReservationStatus resolveStatus(ReservationStatus status,
-                                                   LocalDateTime expiresAt,
-                                                   LocalDateTime now) {
-        boolean expired = status == ReservationStatus.PENDING && !now.isBefore(expiresAt);
-        return expired ? ReservationStatus.EXPIRED : status;
     }
 }

@@ -3,6 +3,8 @@ package com.ceos24.cgv.domain.branch.repository;
 import com.ceos24.cgv.domain.branch.entity.Branch;
 import com.ceos24.cgv.domain.branch.entity.BranchStatus;
 import com.ceos24.cgv.domain.branch.entity.Region;
+import com.ceos24.cgv.global.exception.CustomException;
+import com.ceos24.cgv.global.exception.ErrorCode;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -43,4 +45,14 @@ public interface BranchRepository extends JpaRepository<Branch, Long> {
     List<Branch> searchByKeyword(@Param("keyword") String keyword,
                                  @Param("regions") List<Region> regions,
                                  @Param("excluded") BranchStatus excluded);
+
+    default Branch getByIdOrThrow(Long id) {
+        return findById(id).orElseThrow(() -> new CustomException(ErrorCode.BRANCH_NOT_FOUND));
+    }
+
+    default void validateExists(Long id) {
+        if (!existsById(id)) {
+            throw new CustomException(ErrorCode.BRANCH_NOT_FOUND);
+        }
+    }
 }

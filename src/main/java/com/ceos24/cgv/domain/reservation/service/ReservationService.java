@@ -49,8 +49,7 @@ public class ReservationService {
                 .orElseThrow(() -> new CustomException(ErrorCode.SCREENING_NOT_FOUND));
 
         // 2. 사용자 존재. 토큰은 만료 전까지 유효하므로 탈퇴한 사용자의 토큰도 여기까지 온다
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+        User user = userRepository.getByIdOrThrow(userId);
 
         // 3. 좌석 범위 검증
         TheaterType type = screening.getTheater().getTheaterType();
@@ -132,9 +131,7 @@ public class ReservationService {
     // 취소·만료된 예매도 상태를 달아 보여준다. 사라지면 사용자는 취소가 됐는지 확인할 곳이 없다.
     // 탈퇴한 사용자의 토큰을 빈 목록으로 받아 주면 없는 사용자가 "예매 없음"으로 숨는다.
     public List<ReservationResponse> findMine(Long userId) {
-        if (!userRepository.existsById(userId)) {
-            throw new CustomException(ErrorCode.USER_NOT_FOUND);
-        }
+        userRepository.validateExists(userId);
         return ReservationResponse.listOf(
                 reservationRepository.findDetailRowsByUserId(userId), LocalDateTime.now(clock));
     }

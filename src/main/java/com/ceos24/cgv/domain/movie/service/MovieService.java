@@ -1,7 +1,5 @@
 package com.ceos24.cgv.domain.movie.service;
 
-import com.ceos24.cgv.global.exception.CustomException;
-import com.ceos24.cgv.global.exception.ErrorCode;
 import com.ceos24.cgv.domain.movie.dto.MovieResponse;
 import com.ceos24.cgv.domain.movie.entity.Movie;
 import com.ceos24.cgv.domain.movie.repository.MovieRepository;
@@ -45,8 +43,7 @@ public class MovieService {
     }
 
     public MovieResponse findById(Long id) {
-        Movie movie = movieRepository.findById(id)
-                .orElseThrow(() -> new CustomException(ErrorCode.MOVIE_NOT_FOUND));
+        Movie movie = movieRepository.getByIdOrThrow(id);
         return MovieResponse.from(movie,
                 reservationSeatRepository.countConfirmedByMovieId(id, ReservationStatus.RESERVED));
     }

@@ -31,10 +31,8 @@ public class BranchLikeService {
     // 검증이 없으면 없는 극장이 경합 충돌로 잘못 번역된다.
     @Transactional
     public void like(Long branchId, Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
-        Branch branch = branchRepository.findById(branchId)
-                .orElseThrow(() -> new CustomException(ErrorCode.BRANCH_NOT_FOUND));
+        User user = userRepository.getByIdOrThrow(userId);
+        Branch branch = branchRepository.getByIdOrThrow(branchId);
 
         if (branchLikeRepository.existsByUserIdAndBranchId(userId, branchId)) {
             return;
@@ -57,9 +55,7 @@ public class BranchLikeService {
 
     // 없는 사용자를 빈 목록으로 돌려주면 잘못된 id가 "찜 없음"으로 숨는다.
     public List<BranchLikeResponse> findMyLikes(Long userId) {
-        if (!userRepository.existsById(userId)) {
-            throw new CustomException(ErrorCode.USER_NOT_FOUND);
-        }
+        userRepository.validateExists(userId);
         return branchLikeRepository.findAllByUserIdWithBranch(userId).stream()
                 .map(BranchLikeResponse::from)
                 .toList();

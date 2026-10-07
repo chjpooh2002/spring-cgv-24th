@@ -31,10 +31,8 @@ public class MovieLikeService {
     // 검증이 없으면 없는 영화가 경합 충돌로 잘못 번역된다.
     @Transactional
     public void like(Long movieId, Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
-        Movie movie = movieRepository.findById(movieId)
-                .orElseThrow(() -> new CustomException(ErrorCode.MOVIE_NOT_FOUND));
+        User user = userRepository.getByIdOrThrow(userId);
+        Movie movie = movieRepository.getByIdOrThrow(movieId);
 
         if (movieLikeRepository.existsByUserIdAndMovieId(userId, movieId)) {
             return;
@@ -57,9 +55,7 @@ public class MovieLikeService {
 
     // 없는 사용자를 빈 목록으로 돌려주면 잘못된 id가 "찜 없음"으로 숨는다.
     public List<MovieLikeResponse> findMyLikes(Long userId) {
-        if (!userRepository.existsById(userId)) {
-            throw new CustomException(ErrorCode.USER_NOT_FOUND);
-        }
+        userRepository.validateExists(userId);
         return movieLikeRepository.findAllByUserIdWithMovie(userId).stream()
                 .map(MovieLikeResponse::from)
                 .toList();

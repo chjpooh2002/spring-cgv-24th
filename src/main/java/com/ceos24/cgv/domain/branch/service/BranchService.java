@@ -11,8 +11,6 @@ import com.ceos24.cgv.domain.branch.repository.BranchRepository;
 import com.ceos24.cgv.domain.branch.repository.BranchRepository.RegionCount;
 import com.ceos24.cgv.domain.branch.repository.TheaterRepository;
 import com.ceos24.cgv.domain.branch.repository.TheaterRepository.BranchTheaterType;
-import com.ceos24.cgv.global.exception.CustomException;
-import com.ceos24.cgv.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,8 +54,7 @@ public class BranchService {
 
     // 상세는 상태로 거르지 않는다. 폐관 지점 링크로 들어와도 "운영종료"를 보여주는 편이 404보다 낫다.
     public BranchDetailResponse findById(Long id) {
-        Branch branch = branchRepository.findById(id)
-                .orElseThrow(() -> new CustomException(ErrorCode.BRANCH_NOT_FOUND));
+        Branch branch = branchRepository.getByIdOrThrow(id);
         List<Theater> theaters = theaterRepository.findByBranchId(id);
         return BranchDetailResponse.from(branch, theaters);
     }

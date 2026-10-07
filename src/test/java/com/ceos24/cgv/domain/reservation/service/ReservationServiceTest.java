@@ -25,6 +25,7 @@ import com.ceos24.cgv.domain.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -61,7 +62,9 @@ class ReservationServiceTest {
 
     @Mock ReservationRepository reservationRepository;
     @Mock ScreeningRepository screeningRepository;
-    @Mock UserRepository userRepository;
+    // 서비스는 Repository의 default 메서드(getByIdOrThrow)를 부른다. mock은 default 메서드까지 가짜로 만들므로
+    // 실제 구현을 타게 해서 아래 findById stub이 그대로 쓰이게 한다.
+    @Mock(answer = Answers.CALLS_REAL_METHODS) UserRepository userRepository;
     @Mock ReservationSeatRepository reservationSeatRepository;
 
     ReservationService service;

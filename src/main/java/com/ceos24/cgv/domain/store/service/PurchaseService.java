@@ -45,10 +45,8 @@ public class PurchaseService {
         List<PurchaseCreateRequest.Item> items = sortedByProductId(req.items());
 
         // 2. 사용자·지점 존재, 지점 운영 여부
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
-        Branch branch = branchRepository.findById(req.branchId())
-                .orElseThrow(() -> new CustomException(ErrorCode.BRANCH_NOT_FOUND));
+        User user = userRepository.getByIdOrThrow(userId);
+        Branch branch = branchRepository.getByIdOrThrow(req.branchId());
         if (!branch.isReservable()) {
             throw new CustomException(ErrorCode.BRANCH_NOT_OPERATING);
         }
@@ -84,9 +82,7 @@ public class PurchaseService {
 
     // 없는 사용자를 빈 목록으로 돌려주면 잘못된 id가 "구매 내역 없음"으로 숨는다.
     public List<PurchaseResponse> findHistory(Long userId) {
-        if (!userRepository.existsById(userId)) {
-            throw new CustomException(ErrorCode.USER_NOT_FOUND);
-        }
+        userRepository.validateExists(userId);
         return PurchaseResponse.listOf(purchaseRepository.findHistoryRowsByUserId(userId));
     }
 

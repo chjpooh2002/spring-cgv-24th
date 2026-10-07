@@ -1,6 +1,7 @@
 package com.ceos24.cgv.domain.reservation.dto;
 
 import com.ceos24.cgv.domain.reservation.entity.AudienceType;
+import com.ceos24.cgv.domain.reservation.entity.ReservationSeat;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotEmpty;
@@ -20,5 +21,9 @@ public record ReservationCreateRequest(
             @NotNull @Min(1) Integer rowNum,
             @NotNull @Min(1) Integer colNum,
             @NotNull AudienceType audienceType
-    ) {}
+    ) {
+        public int key() {
+            return ReservationSeat.key(rowNum, colNum);
+        }
+    }
 }

@@ -81,4 +81,10 @@ public class ReservationSeat extends BaseTimeEntity {
     public static String label(int rowNum, int colNum) {
         return String.valueOf((char) ('A' + rowNum - 1)) + colNum;
     }
+
+    // (행, 열) 쌍을 IN 절에 넣을 방법이 DB마다 달라 스칼라 하나로 접는다. 열 수는 상영관 종류 최대가 22라
+    // 100진 자리에서 겹치지 않는다. ReservationRepository.findExpiredHoldsBlocking의 JPQL도 같은 식을 쓴다.
+    public static int key(int rowNum, int colNum) {
+        return rowNum * 100 + colNum;
+    }
 }

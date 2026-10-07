@@ -6,9 +6,11 @@ import com.ceos24.cgv.global.exception.CustomException;
 import com.ceos24.cgv.global.exception.ErrorCode;
 import com.ceos24.cgv.domain.reservation.dto.PaymentRequest;
 import com.ceos24.cgv.domain.reservation.dto.ReservationCreateRequest;
+import com.ceos24.cgv.domain.reservation.dto.ReservationCreateRequest.SeatRequest;
 import com.ceos24.cgv.domain.reservation.dto.ReservationDetailRow;
 import com.ceos24.cgv.domain.reservation.dto.ReservationResponse;
 import com.ceos24.cgv.domain.reservation.entity.Reservation;
+import com.ceos24.cgv.domain.reservation.entity.ReservationSeat;
 import com.ceos24.cgv.domain.reservation.entity.ReservationStatus;
 import com.ceos24.cgv.domain.reservation.repository.ReservationRepository;
 import com.ceos24.cgv.domain.reservation.repository.ReservationSeatRepository;
@@ -44,63 +46,24 @@ public class ReservationService {
     public ReservationResponse create(Long userId, ReservationCreateRequest req) {
         LocalDateTime now = LocalDateTime.now(clock);
 
-        // 1. 회차 존재 (응답이 읽는 영화·상영관·지점까지 함께 로딩)
+        // 응답이 읽는 영화·상영관·지점까지 함께 로딩한다
         Screening screening = screeningRepository.findByIdWithDetails(req.screeningId())
                 .orElseThrow(() -> new CustomException(ErrorCode.SCREENING_NOT_FOUND));
-
-        // 2. 사용자 존재. 토큰은 만료 전까지 유효하므로 탈퇴한 사용자의 토큰도 여기까지 온다
+        // 토큰은 만료 전까지 유효하므로 탈퇴한 사용자의 토큰도 여기까지 온다
         User user = userRepository.getByIdOrThrow(userId);
 
-        // 3. 좌석 범위 검증
-        TheaterType type = screening.getTheater().getTheaterType();
-        for (ReservationCreateRequest.SeatRequest s : req.seats()) {
-            if (!type.isValidSeat(s.rowNum(), s.colNum())) {
-                throw new CustomException(ErrorCode.SEAT_OUT_OF_RANGE);
-            }
-        }
-
-        // 4. 요청 내 중복 검증
-        long distinctCount = req.seats().stream()
-                .map(s -> List.of(s.rowNum(), s.colNum()))
-                .distinct()
-                .count();
-        if (distinctCount != req.seats().size()) {
-            throw new CustomException(ErrorCode.DUPLICATE_SEAT_IN_REQUEST);
-        }
-
-        // 5. 만료된 선점 정리. 유니크 인덱스는 만료 시각을 모르므로,
-        //    행을 놓아주지 않으면 시간이 지난 좌석도 다시 선택할 수 없다.
-        //    범위·중복 검증을 통과한 뒤라 좌석 키가 안전한 범위 안이다.
+        // 만료 선점 정리는 검증 뒤에 한다. 범위·중복 검증을 통과해야 좌석 키가 안전한 범위 안이다.
+        validateSeats(screening.getTheater().getTheaterType(), req.seats());
         releaseExpiredHolds(screening.getId(), req.seats(), now);
+        ensureNotOccupied(screening.getId(), req.seats(), now);
 
-        // 6. 이미 점유된 좌석 pre-check. 경쟁이 없는 경우에 친절한 응답을 주기 위한 것이고,
-        //    검사와 INSERT 사이의 틈은 7번의 유니크 제약이 막는다.
-        Set<String> taken = reservationSeatRepository
-                .findOccupiedPositionsByScreeningId(screening.getId(), ReservationStatus.PENDING, now).stream()
-                .map(p -> p.getRowNum() + ":" + p.getColNum())
-                .collect(Collectors.toSet());
-        for (ReservationCreateRequest.SeatRequest s : req.seats()) {
-            if (taken.contains(s.rowNum() + ":" + s.colNum())) {
-                throw new CustomException(ErrorCode.SEAT_ALREADY_RESERVED);
-            }
-        }
-
-        // 7. 선점 생성 + 경쟁 상태 안전망 (동시 요청으로 유니크 제약 위반 시 포착)
         Reservation reservation = Reservation.builder()
                 .user(user).screening(screening).now(now).build();
         // 좌석 순서가 곧 INSERT 순서이고, INSERT 순서가 곧 락 획득 순서다.
         // 정렬해 두면 [A1,A2]와 [A2,A1] 요청이 서로를 물고 도는 데드락이 생길 수 없다.
-        orderedSeats(req).forEach(s -> reservation.addSeat(s.rowNum(), s.colNum(), s.audienceType()));
+        orderedSeats(req.seats()).forEach(s -> reservation.addSeat(s.rowNum(), s.colNum(), s.audienceType()));
 
-        try {
-            return ReservationResponse.from(reservationRepository.saveAndFlush(reservation), now);
-        } catch (DataIntegrityViolationException e) {
-            throw new CustomException(ErrorCode.SEAT_ALREADY_RESERVED);
-        } catch (ConcurrencyFailureException e) {
-            // 데드락·락 대기 타임아웃. 좌석이 팔렸다는 뜻이 아니라 판정하지 못했다는 뜻이라
-            // 이미 선택된 좌석과 구분해서 재시도를 안내한다.
-            throw new CustomException(ErrorCode.SEAT_RESERVATION_CONFLICT);
-        }
+        return ReservationResponse.from(saveHold(reservation), now);
     }
 
     // 결제 실패는 예외로 알리지만 좌석 해제는 남아야 하므로 롤백 대상에서 뺀다.
@@ -155,14 +118,24 @@ public class ReservationService {
                 .orElseThrow(() -> new CustomException(ErrorCode.RESERVATION_NOT_FOUND));
     }
 
+    // 중복은 좌석 키로 비교하므로 범위 검사가 먼저다. 키는 열이 범위 안일 때만 좌표마다 유일하다.
+    private void validateSeats(TheaterType type, List<SeatRequest> seats) {
+        if (seats.stream().anyMatch(s -> !type.isValidSeat(s.rowNum(), s.colNum()))) {
+            throw new CustomException(ErrorCode.SEAT_OUT_OF_RANGE);
+        }
+        if (seats.stream().map(SeatRequest::key).distinct().count() != seats.size()) {
+            throw new CustomException(ErrorCode.DUPLICATE_SEAT_IN_REQUEST);
+        }
+    }
+
     // 벌크 UPDATE라 INSERT보다 먼저 DB에 반영된다. 엔티티로 바꿔 한 번에 flush하면 Hibernate가 INSERT를 앞세운다.
     // 같은 만료 선점을 다른 요청이 먼저 풀었으면 예매 UPDATE가 0행이 되고 좌석도 건드리지 않는다.
     // 예매와 좌석 중 한쪽만 이 트랜잭션의 새 버전이 되는 일을 막기 위해서다(expireIfPending 주석).
-    private void releaseExpiredHolds(Long screeningId,
-                                     List<ReservationCreateRequest.SeatRequest> seats,
-                                     LocalDateTime now) {
+    // 유니크 인덱스는 만료 시각을 모르므로, 행을 놓아주지 않으면 시간이 지난 좌석도 다시 선택할 수 없다.
+    private void releaseExpiredHolds(Long screeningId, List<SeatRequest> seats, LocalDateTime now) {
+        List<Integer> seatKeys = seats.stream().map(SeatRequest::key).toList();
         List<Long> expiredIds = reservationRepository.findExpiredHoldsBlocking(
-                screeningId, seatKeysOf(seats), ReservationStatus.PENDING, now);
+                screeningId, seatKeys, ReservationStatus.PENDING, now);
         for (Long id : expiredIds) {
             if (reservationRepository.expireIfPending(id, ReservationStatus.PENDING, ReservationStatus.EXPIRED, now) == 1) {
                 reservationSeatRepository.releaseOccupied(id, now);
@@ -170,18 +143,34 @@ public class ReservationService {
         }
     }
 
-    // (행, 열) 쌍을 IN 절에 넣을 방법이 DB마다 달라 스칼라 하나로 접는다.
-    // 열 수는 상영관 종류 최대가 22라 100진 자리에서 겹치지 않는다.
-    private List<Integer> seatKeysOf(List<ReservationCreateRequest.SeatRequest> seats) {
-        return seats.stream()
-                .map(s -> s.rowNum() * 100 + s.colNum())
-                .toList();
+    // 경쟁이 없는 경우에 친절한 응답을 주기 위한 사전 검사다. 검사와 INSERT 사이의 틈은 saveHold의 유니크 제약이 막는다.
+    private void ensureNotOccupied(Long screeningId, List<SeatRequest> seats, LocalDateTime now) {
+        Set<Integer> taken = reservationSeatRepository
+                .findOccupiedPositionsByScreeningId(screeningId, ReservationStatus.PENDING, now).stream()
+                .map(p -> ReservationSeat.key(p.getRowNum(), p.getColNum()))
+                .collect(Collectors.toSet());
+        if (seats.stream().map(SeatRequest::key).anyMatch(taken::contains)) {
+            throw new CustomException(ErrorCode.SEAT_ALREADY_RESERVED);
+        }
     }
 
-    private List<ReservationCreateRequest.SeatRequest> orderedSeats(ReservationCreateRequest req) {
-        return req.seats().stream()
-                .sorted(Comparator.comparingInt(ReservationCreateRequest.SeatRequest::rowNum)
-                        .thenComparingInt(ReservationCreateRequest.SeatRequest::colNum))
+    // 동시 요청이 같은 좌석을 먼저 INSERT한 경우는 유니크 제약 위반으로 여기서 잡힌다.
+    private Reservation saveHold(Reservation reservation) {
+        try {
+            return reservationRepository.saveAndFlush(reservation);
+        } catch (DataIntegrityViolationException e) {
+            throw new CustomException(ErrorCode.SEAT_ALREADY_RESERVED);
+        } catch (ConcurrencyFailureException e) {
+            // 데드락·락 대기 타임아웃. 좌석이 팔렸다는 뜻이 아니라 판정하지 못했다는 뜻이라
+            // 이미 선택된 좌석과 구분해서 재시도를 안내한다.
+            throw new CustomException(ErrorCode.SEAT_RESERVATION_CONFLICT);
+        }
+    }
+
+    private List<SeatRequest> orderedSeats(List<SeatRequest> seats) {
+        return seats.stream()
+                .sorted(Comparator.comparingInt(SeatRequest::rowNum)
+                        .thenComparingInt(SeatRequest::colNum))
                 .toList();
     }
 }
